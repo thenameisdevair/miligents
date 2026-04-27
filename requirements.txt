@@ -1,0 +1,7 @@
+crewai
+crewai-tools
+openai
+chromadb
+python-dotenv
+tavily-python
+requests
