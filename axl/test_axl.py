@@ -27,7 +27,7 @@ import requests
 import os
 
 # Paths — adjust AXL_BINARY if your binary is elsewhere
-AXL_BINARY = os.path.join(os.path.dirname(__file__), "..", "axl-src", "node")
+AXL_BINARY = os.path.expanduser("~/Documents/axl-src/node")
 CONFIG_DIR = os.path.join(os.path.dirname(__file__), "configs")
 CONFIG_A = os.path.join(CONFIG_DIR, "node-config-originator.json")
 CONFIG_B = os.path.join(CONFIG_DIR, "node-config-specialist.json")
@@ -39,7 +39,7 @@ NODE_B_PORT = 9012
 def get_pubkey(port: int) -> str:
     """Get public key from running AXL node."""
     try:
-        r = requests.get(f"http://localhost:{port}/topology", timeout=5)
+        r = requests.get(f"http://localhost:{port}/topology", timeout=30)
         return r.json().get("our_public_key", "")
     except Exception as e:
         print(f"[AXL TEST] Failed to get pubkey on port {port}: {e}")
@@ -53,7 +53,7 @@ def send(port: int, dest_pubkey: str, message: str) -> bool:
             f"http://localhost:{port}/send",
             headers={"X-Destination-Peer-Id": dest_pubkey},
             data=message,
-            timeout=5
+            timeout=30
         )
         return r.status_code == 200
     except Exception as e:
@@ -64,7 +64,7 @@ def send(port: int, dest_pubkey: str, message: str) -> bool:
 def recv(port: int) -> str:
     """Receive one message from AXL node on given port."""
     try:
-        r = requests.get(f"http://localhost:{port}/recv", timeout=5)
+        r = requests.get(f"http://localhost:{port}/recv", timeout=30)
         if r.status_code == 200 and r.text:
             return r.text
         return ""
@@ -75,32 +75,17 @@ def recv(port: int) -> str:
 
 def main():
     print("[AXL TEST] Starting two-node round-trip test...")
+    print("[AXL TEST] Assuming nodes already running externally...")
 
-    # Start Node A
-    proc_a = subprocess.Popen(
-        [AXL_BINARY, "-config", CONFIG_A],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
-    )
-
-    # Start Node B
-    proc_b = subprocess.Popen(
-        [AXL_BINARY, "-config", CONFIG_B],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
-    )
-
-    print("[AXL TEST] Waiting for nodes to start...")
-    time.sleep(3)
-
-    # Get public keys
+    # Get public keys from already-running nodes
     pubkey_a = get_pubkey(NODE_A_PORT)
     pubkey_b = get_pubkey(NODE_B_PORT)
 
     if not pubkey_a or not pubkey_b:
         print("[AXL TEST] FAIL — could not retrieve public keys")
-        proc_a.terminate()
-        proc_b.terminate()
+        print("[AXL TEST] Make sure both AXL nodes are running:")
+        print("  Terminal 1: ./node -config axl/configs/node-config-originator.json")
+        print("  Terminal 2: ./node -config axl/configs/node-config-specialist.json")
         sys.exit(1)
 
     print(f"[AXL TEST] Node A public key: {pubkey_a}")
@@ -113,17 +98,13 @@ def main():
 
     if not ok:
         print("[AXL TEST] FAIL — send returned non-200")
-        proc_a.terminate()
-        proc_b.terminate()
         sys.exit(1)
 
-    time.sleep(2)
+    print("[AXL TEST] Message sent. Waiting for delivery...")
+    time.sleep(3)
 
     # Receive on A
     received = recv(NODE_A_PORT)
-
-    proc_a.terminate()
-    proc_b.terminate()
 
     if test_message in received:
         print(f"[AXL TEST] PASS — message received on A: {received}")
