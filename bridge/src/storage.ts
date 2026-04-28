@@ -35,7 +35,18 @@ export async function uploadData(
   const signer = getSigner();
 
   const encoded = new TextEncoder().encode(data);
-  const memData = new MemData(encoded);
+
+  // 0G Storage minimum chunk size is 256 bytes
+  const MIN_SIZE = 256;
+  let paddedData: Uint8Array;
+  if (encoded.length < MIN_SIZE) {
+    paddedData = new Uint8Array(MIN_SIZE);
+    paddedData.set(encoded);
+  } else {
+    paddedData = encoded;
+  }
+
+  const memData = new MemData(paddedData);
 
   const [tree, treeErr] = await memData.merkleTree();
   if (treeErr !== null) {
