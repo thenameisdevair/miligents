@@ -63,8 +63,12 @@ export async function uploadData(
     RPC_URL,
     signer,
     {
-      gasPrice: undefined,
-      value: BigInt("100000000000000000")  // 0.1 OG in wei
+      tags: "0x",
+      finalityRequired: false,
+      taskSize: 10,
+      expectedReplica: 1,
+      skipTx: false,
+      fee: BigInt("100000000000000000")
     }
   );
   if (uploadErr !== null) {
