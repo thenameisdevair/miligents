@@ -35,18 +35,16 @@ export async function uploadData(
   const signer = getSigner();
 
   const encoded = new TextEncoder().encode(data);
-
-  // 0G Storage minimum chunk size is 256 bytes
   const MIN_SIZE = 256;
-  let paddedData: Uint8Array;
+  let finalData: Uint8Array;
   if (encoded.length < MIN_SIZE) {
-    paddedData = new Uint8Array(MIN_SIZE);
-    paddedData.set(encoded);
+    finalData = new Uint8Array(MIN_SIZE);
+    finalData.set(encoded);
   } else {
-    paddedData = encoded;
+    finalData = encoded;
   }
 
-  const memData = new MemData(paddedData);
+  const memData = new MemData(finalData);
 
   const [tree, treeErr] = await memData.merkleTree();
   if (treeErr !== null) {
@@ -58,24 +56,14 @@ export async function uploadData(
     throw new Error("Failed to compute root hash");
   }
 
-  const [tx, uploadErr] = await indexer.upload(
-    memData,
-    RPC_URL,
-    signer,
-    {
-      tags: "0x",
-      finalityRequired: false,
-      taskSize: 10,
-      expectedReplica: 1,
-      skipTx: false,
-      fee: BigInt("100000000000000000")
-    }
-  );
+  console.log(`[Storage] Uploading '${filename}' root=${rootHash}`);
+
+  const [tx, uploadErr] = await indexer.upload(memData, RPC_URL, signer);
   if (uploadErr !== null) {
     throw new Error(`Upload error: ${uploadErr}`);
   }
 
-  console.log(`[Storage] Uploaded '${filename}' → root hash: ${rootHash}`);
+  console.log(`[Storage] Uploaded successfully root=${rootHash}`);
   return rootHash;
 }
 
