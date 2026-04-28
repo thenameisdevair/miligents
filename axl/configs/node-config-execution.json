@@ -1,5 +1,5 @@
 {
-  "PrivateKeyPath": "private-c.pem",
+  "PrivateKeyPath": "/home/devair/Documents/miligents/axl/configs/private-c.pem",
   "Peers": [],
   "Listen": [],
   "api_port": 9022,

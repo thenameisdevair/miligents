@@ -1,7 +1,6 @@
 {
-  "PrivateKeyPath": "private-a.pem",
+  "PrivateKeyPath": "/home/devair/Documents/miligents/axl/configs/private-a.pem",
   "Peers": [],
-  "Listen": [],
-  "api_port": 9002,
-  "tcp_port": 9001
+  "Listen": ["tls://0.0.0.0:9001"],
+  "api_port": 9002
 }
