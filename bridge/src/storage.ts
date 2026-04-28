@@ -58,7 +58,15 @@ export async function uploadData(
     throw new Error("Failed to compute root hash");
   }
 
-  const [tx, uploadErr] = await indexer.upload(memData, RPC_URL, signer);
+  const [tx, uploadErr] = await indexer.upload(
+    memData,
+    RPC_URL,
+    signer,
+    {
+      gasPrice: undefined,
+      value: BigInt("100000000000000000")  // 0.1 OG in wei
+    }
+  );
   if (uploadErr !== null) {
     throw new Error(`Upload error: ${uploadErr}`);
   }
