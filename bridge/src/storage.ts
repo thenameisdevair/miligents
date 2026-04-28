@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { Indexer, MemData } from "@0glabs/0g-ts-sdk";
+import { Indexer, MemData } from "@0gfoundation/0g-ts-sdk";
 import { ethers } from "ethers";
 import * as dotenv from "dotenv";
 dotenv.config({ path: path.join(__dirname, "../../.env") });
