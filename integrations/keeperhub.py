@@ -34,55 +34,13 @@ HEADERS = {
 }
 
 
-def _get_session_id() -> str:
-    """
-    Establish an SSE session with KeeperHub MCP server.
-    Returns the sessionId from the endpoint event.
-    """
-    session_queue = queue.Queue()
-
-    def stream():
-        try:
-            with requests.get(
-                f"{KEEPERHUB_MCP_URL}/sse",
-                headers={"Authorization": f"Bearer {KEEPERHUB_MCP_API_KEY}"},
-                stream=True,
-                timeout=10
-            ) as response:
-                for line in response.iter_lines():
-                    if line:
-                        decoded = line.decode("utf-8")
-                        if decoded.startswith("data: /message?sessionId="):
-                            session_id = decoded.split("sessionId=")[1].strip()
-                            session_queue.put(session_id)
-                            return
-        except Exception as e:
-            session_queue.put(None)
-
-    thread = threading.Thread(target=stream, daemon=True)
-    thread.start()
-
-    session_id = session_queue.get(timeout=10)
-    if not session_id:
-        raise RuntimeError("Failed to get KeeperHub session ID")
-    return session_id
-
-
 def _call_tool(tool_name: str, arguments: dict) -> dict:
     """
-    Call a KeeperHub MCP tool via SSE session.
-
-    Args:
-        tool_name: Name of the MCP tool to call.
-        arguments: Tool arguments as dict.
-
-    Returns:
-        Tool response as dict.
-
-    Raises:
-        RuntimeError: If the tool call fails.
+    Call a KeeperHub MCP tool.
+    Keeps SSE connection open while sending the message.
     """
-    session_id = _get_session_id()
+    session_id = None
+    result_queue = queue.Queue()
 
     payload = {
         "jsonrpc": "2.0",
@@ -94,31 +52,56 @@ def _call_tool(tool_name: str, arguments: dict) -> dict:
         }
     }
 
+    def stream_and_call():
+        nonlocal session_id
+        try:
+            with requests.get(
+                f"{KEEPERHUB_MCP_URL}/sse",
+                headers={"Authorization": f"Bearer {KEEPERHUB_MCP_API_KEY}"},
+                stream=True,
+                timeout=30
+            ) as sse_response:
+                for line in sse_response.iter_lines():
+                    if line:
+                        decoded = line.decode("utf-8")
+                        if decoded.startswith("data: /message?sessionId="):
+                            session_id = decoded.split("sessionId=")[1].strip()
+                            # SSE connection still open — send message now
+                            try:
+                                resp = requests.post(
+                                    f"{KEEPERHUB_MCP_URL}/message?sessionId={session_id}",
+                                    headers=HEADERS,
+                                    json=payload,
+                                    timeout=TIMEOUT
+                                )
+                                resp.raise_for_status()
+                                result_queue.put(resp.json())
+                            except Exception as e:
+                                result_queue.put({"error": str(e)})
+                            return
+        except Exception as e:
+            result_queue.put({"error": str(e)})
+
+    thread = threading.Thread(target=stream_and_call, daemon=True)
+    thread.start()
+
     try:
-        response = requests.post(
-            f"{KEEPERHUB_MCP_URL}/message?sessionId={session_id}",
-            headers=HEADERS,
-            json=payload,
-            timeout=TIMEOUT
-        )
-        response.raise_for_status()
-        result = response.json()
+        result = result_queue.get(timeout=30)
+    except queue.Empty:
+        raise RuntimeError("KeeperHub MCP call timed out")
 
-        if "error" in result:
-            raise RuntimeError(f"MCP error: {result['error']}")
+    if "error" in result:
+        raise RuntimeError(f"KeeperHub MCP error: {result['error']}")
 
-        content = result.get("result", {}).get("content", [])
-        if content and content[0].get("type") == "text":
-            text = content[0]["text"]
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError:
-                return {"result": text}
+    content = result.get("result", {}).get("content", [])
+    if content and content[0].get("type") == "text":
+        text = content[0]["text"]
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return {"result": text}
 
-        return result.get("result", {})
-
-    except requests.RequestException as e:
-        raise RuntimeError(f"KeeperHub MCP call failed: {e}")
+    return result.get("result", {})
 
 
 def health_check() -> bool:
