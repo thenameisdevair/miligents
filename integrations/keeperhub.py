@@ -17,6 +17,8 @@ Prerequisites:
 
 import json
 import os
+import queue
+import threading
 import requests
 from dotenv import load_dotenv
 
@@ -32,9 +34,43 @@ HEADERS = {
 }
 
 
+def _get_session_id() -> str:
+    """
+    Establish an SSE session with KeeperHub MCP server.
+    Returns the sessionId from the endpoint event.
+    """
+    session_queue = queue.Queue()
+
+    def stream():
+        try:
+            with requests.get(
+                f"{KEEPERHUB_MCP_URL}/sse",
+                headers={"Authorization": f"Bearer {KEEPERHUB_MCP_API_KEY}"},
+                stream=True,
+                timeout=10
+            ) as response:
+                for line in response.iter_lines():
+                    if line:
+                        decoded = line.decode("utf-8")
+                        if decoded.startswith("data: /message?sessionId="):
+                            session_id = decoded.split("sessionId=")[1].strip()
+                            session_queue.put(session_id)
+                            return
+        except Exception as e:
+            session_queue.put(None)
+
+    thread = threading.Thread(target=stream, daemon=True)
+    thread.start()
+
+    session_id = session_queue.get(timeout=10)
+    if not session_id:
+        raise RuntimeError("Failed to get KeeperHub session ID")
+    return session_id
+
+
 def _call_tool(tool_name: str, arguments: dict) -> dict:
     """
-    Call a KeeperHub MCP tool via HTTP POST to /message endpoint.
+    Call a KeeperHub MCP tool via SSE session.
 
     Args:
         tool_name: Name of the MCP tool to call.
@@ -46,6 +82,8 @@ def _call_tool(tool_name: str, arguments: dict) -> dict:
     Raises:
         RuntimeError: If the tool call fails.
     """
+    session_id = _get_session_id()
+
     payload = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -58,7 +96,7 @@ def _call_tool(tool_name: str, arguments: dict) -> dict:
 
     try:
         response = requests.post(
-            f"{KEEPERHUB_MCP_URL}/message",
+            f"{KEEPERHUB_MCP_URL}/message?sessionId={session_id}",
             headers=HEADERS,
             json=payload,
             timeout=TIMEOUT
