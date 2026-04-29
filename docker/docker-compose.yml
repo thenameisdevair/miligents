@@ -1,0 +1,95 @@
+version: "3.9"
+
+services:
+
+  bridge:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.bridge
+    ports:
+      - "3100:3100"
+    env_file:
+      - ../.env
+    environment:
+      - BRIDGE_PORT=3100
+      - BRIDGE_URL=http://bridge:3100
+    networks:
+      - miligents-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3100/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  originator:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.originator
+    env_file:
+      - ../.env
+    environment:
+      - BRIDGE_URL=http://bridge:3100
+      - AXL_API_PORT=9002
+      - SPECIALIST_PUBKEY=${SPECIALIST_PUBKEY:-}
+      - EXECUTION_PUBKEY=${EXECUTION_PUBKEY:-}
+    volumes:
+      - ../axl/configs/node-config-originator.json:/app/axl/configs/node-config-originator.json
+      - ../axl/configs/private-a.pem:/app/axl/configs/private-a.pem
+      - originator-chroma:/app/chroma_data
+    networks:
+      - miligents-net
+    depends_on:
+      bridge:
+        condition: service_healthy
+
+  specialist:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.specialist
+    env_file:
+      - ../.env
+    environment:
+      - BRIDGE_URL=http://bridge:3100
+      - AXL_API_PORT=9002
+      - SPECIALIST_DOMAIN=${SPECIALIST_DOMAIN:-agentic trading}
+    volumes:
+      - ../axl/configs/node-config-specialist.json:/app/axl/configs/node-config-specialist.json
+      - ../axl/configs/private-b.pem:/app/axl/configs/private-b.pem
+      - specialist-chroma:/app/chroma_data
+    networks:
+      - miligents-net
+    depends_on:
+      bridge:
+        condition: service_healthy
+
+  execution:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.execution
+    env_file:
+      - ../.env
+    environment:
+      - BRIDGE_URL=http://bridge:3100
+      - AXL_API_PORT=9002
+      - EXECUTION_STRATEGY=${EXECUTION_STRATEGY:-agentic trading}
+      - KEEPERHUB_MCP_URL=${KEEPERHUB_MCP_URL:-http://host.docker.internal:3001}
+    volumes:
+      - ../axl/configs/node-config-execution.json:/app/axl/configs/node-config-execution.json
+      - ../axl/configs/private-c.pem:/app/axl/configs/private-c.pem
+      - execution-chroma:/app/chroma_data
+    networks:
+      - miligents-net
+    depends_on:
+      bridge:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+networks:
+  miligents-net:
+    driver: bridge
+
+volumes:
+  originator-chroma:
+  specialist-chroma:
+  execution-chroma:
