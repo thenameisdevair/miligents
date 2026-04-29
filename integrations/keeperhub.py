@@ -215,7 +215,7 @@ def generate_workflow(prompt: str) -> dict:
     Raises:
         RuntimeError: If generation fails.
     """
-    result = _call_tool("generate_workflow", {
+    result = _call_tool("create_workflow", {
         "prompt": prompt
     })
     print(f"[KeeperHub] Generated workflow from prompt")
@@ -232,7 +232,7 @@ def get_execution_status(execution_id: str) -> dict:
     Returns:
         Dict with status, result, and logs.
     """
-    result = _call_tool("get_execution", {
+    result = _call_tool("get_execution_status", {
         "execution_id": execution_id
     })
     return result
