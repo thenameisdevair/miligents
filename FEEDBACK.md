@@ -44,3 +44,29 @@
 ### Suggested improvement
 - Add a Python example showing the correct SSE session flow
 - Document that tool responses arrive via SSE stream, not HTTP response
+
+
+## Uniswap
+
+### What we built
+- Quote endpoint wrapper via Trading API REST
+- Swap execution flow (quote → order)
+- Token balance checker
+- WETH/USDC Sepolia testnet constants
+- Wrapper wired into Originator for treasury management
+
+### What worked
+- Trading API REST interface is clean and well-documented
+- Quote flow is straightforward
+
+### What requires more work
+- execute_swap requires wallet signing — needs ethers.js or web3.py
+  integration to sign the transaction before submitting to /order
+- Full mainnet swap requires proper signature — current implementation
+  uses placeholder "0x" signature for demo purposes
+
+### Suggested improvement
+- Add a signing helper that uses WALLET_PRIVATE_KEY to sign the
+  Uniswap permit2 calldata before submitting the order
+- Better error messages when API key is missing or invalid
+
