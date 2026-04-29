@@ -31,8 +31,7 @@ def create_originator() -> Agent:
     Returns:
         Configured CrewAI Agent instance.
     """
-    os.environ["OPENAI_API_BASE"] = os.getenv("LLM_BASE_URL", "")
-    os.environ["OPENAI_API_KEY"] = os.getenv("LLM_API_KEY", "")
+    os.environ["CEREBRAS_API_KEY"] = os.getenv("LLM_API_KEY", "")
 
     return Agent(
         role="Chief Executive Agent",
@@ -59,7 +58,7 @@ def create_originator() -> Agent:
             receive_axl_tool,
             get_pubkey_tool
         ],
-        llm=f"openai/{os.getenv('LLM_MODEL', 'llama3.1-8b')}",
+        llm=f"cerebras/{os.getenv('LLM_MODEL', 'llama3.1-8b')}",
         verbose=True,
         allow_delegation=False,
         max_iter=10
