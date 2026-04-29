@@ -215,7 +215,7 @@ def generate_workflow(prompt: str) -> dict:
     Raises:
         RuntimeError: If generation fails.
     """
-    result = _call_tool("create_workflow", {
+    result = _call_tool("ai_generate_workflow", {
         "prompt": prompt
     })
     print(f"[KeeperHub] Generated workflow from prompt")
@@ -236,6 +236,67 @@ def get_execution_status(execution_id: str) -> dict:
         "execution_id": execution_id
     })
     return result
+
+
+def execute_transfer(to: str, amount: str, token: str = "ETH") -> str:
+    """
+    Execute a direct token transfer via KeeperHub.
+    Args:
+        to: Recipient wallet address.
+        amount: Amount to transfer as string.
+        token: Token symbol (default ETH).
+    Returns:
+        execution_id as string.
+    """
+    result = _call_tool("execute_transfer", {
+        "to": to,
+        "amount": amount,
+        "token": token
+    })
+    execution_id = result.get("executionId") or result.get("id", "")
+    print(f"[KeeperHub] Transfer execution: {execution_id}")
+    return execution_id
+
+
+def execute_contract_call(
+    contract: str,
+    abi: list,
+    function_name: str,
+    args: list
+) -> str:
+    """
+    Execute a smart contract function call via KeeperHub.
+    Args:
+        contract: Contract address.
+        abi: Contract ABI as list.
+        function_name: Function to call.
+        args: Function arguments as list.
+    Returns:
+        execution_id as string.
+    """
+    result = _call_tool("execute_contract_call", {
+        "contract": contract,
+        "abi": abi,
+        "function": function_name,
+        "args": args
+    })
+    execution_id = result.get("executionId") or result.get("id", "")
+    print(f"[KeeperHub] Contract call execution: {execution_id}")
+    return execution_id
+
+
+def get_execution_logs(execution_id: str) -> list:
+    """
+    Get detailed logs for a workflow execution.
+    Args:
+        execution_id: Execution ID to get logs for.
+    Returns:
+        List of log entries.
+    """
+    result = _call_tool("get_execution_logs", {
+        "execution_id": execution_id
+    })
+    return result if isinstance(result, list) else result.get("logs", [])
 
 
 def test_keeperhub() -> bool:
