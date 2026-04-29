@@ -39,7 +39,6 @@ def _call_tool(tool_name: str, arguments: dict) -> dict:
     Call a KeeperHub MCP tool.
     Keeps SSE connection open while sending the message.
     """
-    session_id = None
     result_queue = queue.Queue()
 
     payload = {
@@ -53,32 +52,41 @@ def _call_tool(tool_name: str, arguments: dict) -> dict:
     }
 
     def stream_and_call():
-        nonlocal session_id
         try:
             with requests.get(
                 f"{KEEPERHUB_MCP_URL}/sse",
                 headers={"Authorization": f"Bearer {KEEPERHUB_MCP_API_KEY}"},
                 stream=True,
-                timeout=30
+                timeout=60
             ) as sse_response:
+                current_event = None
                 for line in sse_response.iter_lines():
                     if line:
                         decoded = line.decode("utf-8")
-                        if decoded.startswith("data: /message?sessionId="):
-                            session_id = decoded.split("sessionId=")[1].strip()
-                            # SSE connection still open — send message now
-                            try:
-                                resp = requests.post(
-                                    f"{KEEPERHUB_MCP_URL}/message?sessionId={session_id}",
-                                    headers=HEADERS,
-                                    json=payload,
-                                    timeout=TIMEOUT
-                                )
-                                resp.raise_for_status()
-                                result_queue.put(resp.json())
-                            except Exception as e:
-                                result_queue.put({"error": str(e)})
-                            return
+                        if decoded.startswith("event:"):
+                            current_event = decoded.split("event:")[1].strip()
+                        elif decoded.startswith("data:"):
+                            data = decoded[len("data:"):].strip()
+                            if data.startswith("/message?sessionId="):
+                                session_id = data.split("sessionId=")[1].strip()
+                                # Send message while SSE connection is open
+                                try:
+                                    requests.post(
+                                        f"{KEEPERHUB_MCP_URL}/message?sessionId={session_id}",
+                                        headers=HEADERS,
+                                        json=payload,
+                                        timeout=TIMEOUT
+                                    )
+                                except Exception as e:
+                                    result_queue.put({"error": str(e)})
+                                    return
+                            elif current_event == "message" and data:
+                                # This is the tool response
+                                try:
+                                    result_queue.put(json.loads(data))
+                                except json.JSONDecodeError:
+                                    result_queue.put({"result": data})
+                                return
         except Exception as e:
             result_queue.put({"error": str(e)})
 
