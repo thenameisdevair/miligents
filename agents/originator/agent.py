@@ -8,10 +8,10 @@ monitors children, and manages the growing agent company.
 
 import sys
 import os
+from dotenv import load_dotenv
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 from crewai import Agent
-from integrations.og_compute import get_client
 from agents.originator.tools import (
     web_search_tool,
     store_research_tool,
@@ -21,6 +21,8 @@ from agents.originator.tools import (
     get_pubkey_tool
 )
 
+load_dotenv()
+
 
 def create_originator() -> Agent:
     """
@@ -29,6 +31,9 @@ def create_originator() -> Agent:
     Returns:
         Configured CrewAI Agent instance.
     """
+    os.environ["OPENAI_API_BASE"] = os.getenv("LLM_BASE_URL", "")
+    os.environ["OPENAI_API_KEY"] = os.getenv("LLM_API_KEY", "")
+
     return Agent(
         role="Chief Executive Agent",
         goal=(
@@ -54,7 +59,7 @@ def create_originator() -> Agent:
             receive_axl_tool,
             get_pubkey_tool
         ],
-        llm=get_client(),
+        llm=f"openai/{os.getenv('LLM_MODEL', 'llama3.1-8b')}",
         verbose=True,
         allow_delegation=False,
         max_iter=10
