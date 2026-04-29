@@ -1,0 +1,9 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt --no-cache-dir
+COPY agents/research_specialist/ ./agents/research_specialist/
+COPY axl/ ./axl/
+COPY integrations/ ./integrations/
+ENV PYTHONPATH=/app
+CMD ["python", "agents/research_specialist/main.py"]
