@@ -36,6 +36,7 @@ services:
       - ../axl/configs/node-config-originator.json:/app/axl/configs/node-config-originator.json
       - ../axl/configs/private-a.pem:/app/axl/configs/private-a.pem
       - originator-chroma:/app/chroma_data
+      - state-data:/app/state
     networks:
       - miligents-net
     depends_on:
@@ -56,6 +57,7 @@ services:
       - ../axl/configs/node-config-specialist.json:/app/axl/configs/node-config-specialist.json
       - ../axl/configs/private-b.pem:/app/axl/configs/private-b.pem
       - specialist-chroma:/app/chroma_data
+      - state-data:/app/state
     networks:
       - miligents-net
     depends_on:
@@ -77,6 +79,29 @@ services:
       - ../axl/configs/node-config-execution.json:/app/axl/configs/node-config-execution.json
       - ../axl/configs/private-c.pem:/app/axl/configs/private-c.pem
       - execution-chroma:/app/chroma_data
+      - state-data:/app/state
+    networks:
+      - miligents-net
+    depends_on:
+      bridge:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "8080:8080"
+    env_file:
+      - ../.env
+    environment:
+      - STATE_DIR=/app/state
+      - BRIDGE_URL=http://bridge:3100
+      - KEEPERHUB_MCP_URL=http://host.docker.internal:3001
+    volumes:
+      - state-data:/app/state
     networks:
       - miligents-net
     depends_on:
@@ -90,6 +115,7 @@ networks:
     driver: bridge
 
 volumes:
+  state-data:
   originator-chroma:
   specialist-chroma:
   execution-chroma:
