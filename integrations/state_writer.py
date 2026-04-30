@@ -1,0 +1,310 @@
+"""
+integrations/state_writer.py
+
+Shared SQLite state writer for all MiliGents agents.
+Every agent imports this and calls these functions to persist
+their state to a shared state.db file so the API server
+can read and expose real data to the frontend.
+
+DB file location: /app/state/state.db (Docker shared volume)
+Falls back to: ./state/state.db (local development)
+"""
+
+import json
+import os
+import sqlite3
+from datetime import datetime, timezone
+from pathlib import Path
+
+# State DB path — shared Docker volume in production, local in dev
+STATE_DIR = os.getenv("STATE_DIR", "./state")
+DB_PATH = os.path.join(STATE_DIR, "state.db")
+
+
+def _get_conn() -> sqlite3.Connection:
+    """Open connection to state DB, creating it and schema if needed."""
+    Path(STATE_DIR).mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    _ensure_schema(conn)
+    return conn
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    """Create all tables if they do not exist."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS agents (
+            agent_id      TEXT PRIMARY KEY,
+            status        TEXT NOT NULL DEFAULT 'idle',
+            current_task  TEXT,
+            started_at    TEXT,
+            updated_at    TEXT,
+            spawned_count INTEGER DEFAULT 0,
+            result        TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS axl_messages (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_agent    TEXT NOT NULL,
+            to_agent      TEXT NOT NULL,
+            msg_type      TEXT NOT NULL,
+            payload       TEXT,
+            timestamp     TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS storage_records (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id      TEXT NOT NULL,
+            filename      TEXT NOT NULL,
+            root_hash     TEXT NOT NULL,
+            timestamp     TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS keeperhub_tasks (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id      TEXT NOT NULL,
+            workflow_id   TEXT,
+            execution_id  TEXT,
+            task_type     TEXT,
+            status        TEXT,
+            tx_hash       TEXT,
+            timestamp     TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS infts (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id      TEXT NOT NULL,
+            token_id      TEXT NOT NULL,
+            root_hash     TEXT NOT NULL,
+            strategy_name TEXT,
+            version       INTEGER DEFAULT 1,
+            mint_tx       TEXT,
+            minted_at     TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS treasury_snapshots (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            eth_balance   TEXT NOT NULL,
+            usd_value     TEXT,
+            timestamp     TEXT NOT NULL
+        );
+    """)
+    conn.commit()
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+# ─── Agent Status ─────────────────────────────────────────────────────────────
+
+def write_agent_status(
+    agent_id: str,
+    status: str,
+    current_task: str = None,
+    spawned_count: int = None,
+    result: str = None
+) -> None:
+    """
+    Write or update an agent's current status.
+
+    Args:
+        agent_id: One of 'originator', 'specialist', 'execution'.
+        status: 'idle' | 'running' | 'complete' | 'error'
+        current_task: Human-readable description of current task.
+        spawned_count: Number of child agents spawned (Originator only).
+        result: Final result string (truncated to 500 chars).
+    """
+    try:
+        conn = _get_conn()
+        now = _now()
+        existing = conn.execute(
+            "SELECT agent_id FROM agents WHERE agent_id = ?", (agent_id,)
+        ).fetchone()
+
+        if existing:
+            fields = ["status = ?", "updated_at = ?"]
+            values = [status, now]
+            if current_task is not None:
+                fields.append("current_task = ?")
+                values.append(current_task)
+            if spawned_count is not None:
+                fields.append("spawned_count = ?")
+                values.append(spawned_count)
+            if result is not None:
+                fields.append("result = ?")
+                values.append(result[:500])
+            values.append(agent_id)
+            conn.execute(
+                f"UPDATE agents SET {', '.join(fields)} WHERE agent_id = ?",
+                values
+            )
+        else:
+            conn.execute(
+                """INSERT INTO agents
+                   (agent_id, status, current_task, started_at, updated_at, spawned_count, result)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    agent_id, status, current_task, now, now,
+                    spawned_count or 0,
+                    result[:500] if result else None
+                )
+            )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[StateWriter] write_agent_status failed: {e}")
+
+
+# ─── AXL Messages ─────────────────────────────────────────────────────────────
+
+def write_axl_message(
+    from_agent: str,
+    to_agent: str,
+    msg_type: str,
+    payload: dict
+) -> None:
+    """
+    Record an AXL message sent or received.
+
+    Args:
+        from_agent: Sending agent name.
+        to_agent: Receiving agent name.
+        msg_type: 'SPAWN_SPECIALIST' | 'INSTRUCTION' | 'REPORT' | 'STATUS'
+        payload: Message payload dict.
+    """
+    try:
+        conn = _get_conn()
+        conn.execute(
+            """INSERT INTO axl_messages (from_agent, to_agent, msg_type, payload, timestamp)
+               VALUES (?, ?, ?, ?, ?)""",
+            (from_agent, to_agent, msg_type, json.dumps(payload), _now())
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[StateWriter] write_axl_message failed: {e}")
+
+
+# ─── Storage Records ──────────────────────────────────────────────────────────
+
+def write_storage_record(
+    agent_id: str,
+    filename: str,
+    root_hash: str
+) -> None:
+    """
+    Record a 0G Storage upload.
+
+    Args:
+        agent_id: Agent that performed the upload.
+        filename: Logical filename used.
+        root_hash: 0G Storage root hash returned.
+    """
+    try:
+        conn = _get_conn()
+        conn.execute(
+            """INSERT INTO storage_records (agent_id, filename, root_hash, timestamp)
+               VALUES (?, ?, ?, ?)""",
+            (agent_id, filename, root_hash, _now())
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[StateWriter] write_storage_record failed: {e}")
+
+
+# ─── KeeperHub Tasks ──────────────────────────────────────────────────────────
+
+def write_keeperhub_task(
+    agent_id: str,
+    workflow_id: str = None,
+    execution_id: str = None,
+    task_type: str = None,
+    status: str = None,
+    tx_hash: str = None
+) -> None:
+    """
+    Record a KeeperHub workflow or execution event.
+
+    Args:
+        agent_id: Agent that triggered the task.
+        workflow_id: KeeperHub workflow ID.
+        execution_id: KeeperHub execution ID.
+        task_type: Human-readable task type description.
+        status: 'pending' | 'running' | 'complete' | 'failed'
+        tx_hash: On-chain transaction hash if available.
+    """
+    try:
+        conn = _get_conn()
+        conn.execute(
+            """INSERT INTO keeperhub_tasks
+               (agent_id, workflow_id, execution_id, task_type, status, tx_hash, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (agent_id, workflow_id, execution_id, task_type, status, tx_hash, _now())
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[StateWriter] write_keeperhub_task failed: {e}")
+
+
+# ─── iNFTs ────────────────────────────────────────────────────────────────────
+
+def write_inft(
+    agent_id: str,
+    token_id: str,
+    root_hash: str,
+    strategy_name: str = None,
+    version: int = 1,
+    mint_tx: str = None
+) -> None:
+    """
+    Record a minted iNFT.
+
+    Args:
+        agent_id: Agent that minted the iNFT.
+        token_id: On-chain token ID.
+        root_hash: 0G Storage root hash of the strategy.
+        strategy_name: Human-readable strategy name.
+        version: Strategy version number.
+        mint_tx: Mint transaction hash.
+    """
+    try:
+        conn = _get_conn()
+        conn.execute(
+            """INSERT INTO infts
+               (agent_id, token_id, root_hash, strategy_name, version, mint_tx, minted_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (agent_id, token_id, root_hash, strategy_name, version, mint_tx, _now())
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[StateWriter] write_inft failed: {e}")
+
+
+# ─── Treasury ─────────────────────────────────────────────────────────────────
+
+def write_treasury_snapshot(
+    eth_balance: str,
+    usd_value: str = None
+) -> None:
+    """
+    Record a treasury balance snapshot.
+
+    Args:
+        eth_balance: ETH balance as string (in ETH, not wei).
+        usd_value: USD equivalent as string.
+    """
+    try:
+        conn = _get_conn()
+        conn.execute(
+            """INSERT INTO treasury_snapshots (eth_balance, usd_value, timestamp)
+               VALUES (?, ?, ?)""",
+            (eth_balance, usd_value, _now())
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[StateWriter] write_treasury_snapshot failed: {e}")
