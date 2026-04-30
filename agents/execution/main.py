@@ -9,6 +9,7 @@ import sys
 import os
 import signal
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
+from integrations.state_writer import write_agent_status
 
 from crewai import Crew, Process
 from agents.execution.agent import create_execution_agent
@@ -62,14 +63,17 @@ def run():
     signal.signal(signal.SIGTERM, handle_shutdown)
 
     print(f"[Execution] Starting execution of '{strategy}'...")
+    write_agent_status("execution", "running", current_task=f"Executing strategy: {strategy}")
     print("[Execution] Press Ctrl+C to stop\n")
 
     try:
         result = crew.kickoff()
         print("\n[Execution] Execution complete.")
         print("[Execution] Result:", result)
+        write_agent_status("execution", "complete", result=str(result))
     except KeyboardInterrupt:
         print("\n[Execution] Stopped by user.")
+        write_agent_status("execution", "idle")
 
 
 if __name__ == "__main__":

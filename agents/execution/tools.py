@@ -11,6 +11,7 @@ import json
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
+from integrations.state_writer import write_agent_status, write_axl_message, write_storage_record, write_keeperhub_task, write_inft
 
 from crewai.tools import tool
 from integrations.bridge_client import upload_data, mint_inft
@@ -71,6 +72,12 @@ def create_workflow_tool(name: str, description: str) -> str:
     """
     try:
         workflow_id = create_workflow(name, description)
+        write_keeperhub_task(
+            agent_id="execution",
+            workflow_id=workflow_id,
+            task_type=name,
+            status="created"
+        )
         return f"Created workflow: {workflow_id}"
     except Exception as e:
         return f"Workflow creation failed: {e}"
@@ -109,6 +116,14 @@ def execute_workflow_tool(workflow_id: str) -> str:
     """
     try:
         execution_id = execute_workflow(workflow_id)
+        write_keeperhub_task(
+            agent_id="execution",
+            workflow_id=workflow_id,
+            execution_id=execution_id,
+            task_type="workflow_execution",
+            status="running"
+        )
+        write_agent_status("execution", "running", current_task=f"Executing workflow: {workflow_id}")
         return f"Execution started: {execution_id}"
     except Exception as e:
         return f"Execution failed: {e}"
@@ -127,6 +142,13 @@ def check_status_tool(execution_id: str) -> str:
     """
     try:
         status = get_execution_status(execution_id)
+        write_keeperhub_task(
+            agent_id="execution",
+            execution_id=execution_id,
+            task_type="status_check",
+            status=status.get("status", "unknown"),
+            tx_hash=status.get("tx_hash")
+        )
         return json.dumps(status)
     except Exception as e:
         return f"Status check failed: {e}"
@@ -166,6 +188,16 @@ def store_strategy_tool(strategy: str, version: int, agent_name: str) -> str:
                 "version": version
             }
         )
+
+        write_storage_record("execution", filename, root_hash)
+        write_inft(
+            agent_id="execution",
+            token_id=str(token_id),
+            root_hash=root_hash,
+            strategy_name=filename,
+            version=version
+        )
+        write_agent_status("execution", "running", current_task=f"Minted iNFT v{version}: token {token_id}")
 
         return json.dumps({
             "root_hash": root_hash,
@@ -207,6 +239,11 @@ def report_status_tool(
             }
         )
         success = send_message(originator_pubkey, message)
+        if success:
+            write_axl_message("execution", "originator", "STATUS", {
+                "status": status,
+                "metrics": metrics_dict
+            })
         return "sent" if success else "failed to send"
     except Exception as e:
         return f"AXL send failed: {e}"
