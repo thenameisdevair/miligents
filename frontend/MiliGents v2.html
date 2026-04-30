@@ -1473,6 +1473,225 @@ setInterval(()=>{
   hTreas += Math.floor((Math.random()-.4)*120);
   $('#hero-treas').textContent = '$' + hTreas.toLocaleString();
 }, 1800);
+
+/* ================= API WIRING ================= */
+const API = (typeof window !== 'undefined' && window.MILIGENTS_API) || 'http://localhost:8080';
+
+function agentStatusClass(status) {
+  if (status === 'running') return 'run';
+  if (status === 'complete') return 'idle';
+  if (status === 'error') return 'idle';
+  return 'idle';
+}
+
+function agentBadgeLabel(status) {
+  if (status === 'running') return 'Running';
+  if (status === 'complete') return 'Complete';
+  if (status === 'error') return 'Error';
+  return 'Idle';
+}
+
+function renderAgentCards(agents) {
+  const names = { originator: 'Originator', specialist: 'Research Specialist', execution: 'Execution' };
+  const layers = { originator: '1', specialist: '2', execution: '3' };
+  const cards = ['originator', 'specialist', 'execution'].map(id => {
+    const a = agents.find(x => x.agent_id === id) || { agent_id: id, status: 'idle', current_task: 'Waiting...', spawned_count: 0 };
+    const sc = agentStatusClass(a.status);
+    const bl = agentBadgeLabel(a.status);
+    const dotAnim = a.status === 'running' ? 'animation:pulse 1.6s ease-in-out infinite' : '';
+    return `<div class="agent-card">
+      <div class="row">
+        <div>
+          <div class="nm">Agent · Layer ${layers[id]}</div>
+          <div class="name">${names[id]}</div>
+        </div>
+        <span class="badge ${sc}"><span class="d" style="${dotAnim}"></span>${bl}</span>
+      </div>
+      <div class="task"><b>Current task:</b> ${a.current_task || 'Idle'}</div>
+      <div class="meta">
+        <span>STATUS <b>${a.status || 'idle'}</b></span>
+        <span>SPAWNED <b>${a.spawned_count || 0}</b></span>
+      </div>
+    </div>`;
+  });
+  const row = document.querySelector('.agents-row');
+  if (row) row.innerHTML = cards.join('');
+}
+
+function renderAxlFeed(messages) {
+  const feed = document.getElementById('axl-feed');
+  if (!feed || !messages.length) return;
+  feed.innerHTML = '';
+  const recent = messages.slice(0, 14);
+  recent.forEach((m, i) => {
+    const fromCls = (m.from_agent || '').toLowerCase().slice(0, 4);
+    const toAgent = (m.to_agent || '').toUpperCase();
+    const toCls = (m.to_agent || '').toLowerCase().slice(0, 4);
+    const arrow = m.to_agent ? `<span class="arrow">→</span><span class="role ${toCls}">${toAgent}</span>` : '<span class="arrow">▸</span>';
+    const payloadStr = typeof m.payload === 'object' ? JSON.stringify(m.payload) : (m.payload || '{}');
+    const payload = payloadStr.replace(/"([^"]+)":/g,'<span class="k">"$1"</span>:').replace(/:"([^"]*)"/g,':<span class="v">"$1"</span>');
+    const ts = m.timestamp ? m.timestamp.slice(11, 19) : tsNow();
+    const line = document.createElement('div');
+    line.className = 'axl-line fade';
+    line.style.opacity = (0.4 + (i / (recent.length - 1 || 1)) * 0.6).toFixed(2);
+    line.innerHTML = `<span class="ts">[${ts}]</span><span class="role ${fromCls}">${(m.from_agent||'').toUpperCase()}</span>${arrow}<span class="type ${m.msg_type}">${m.msg_type}</span><span class="payload">${payload}</span>`;
+    feed.appendChild(line);
+  });
+}
+
+function renderKeeperTasks(tasks) {
+  const tbody = document.querySelector('.kh-table tbody');
+  if (!tbody) return;
+  if (!tasks.length) return;
+  tbody.innerHTML = tasks.slice(0, 8).map(t => {
+    const statusCls = t.status === 'complete' || t.status === 'created' ? 'exec' : t.status === 'running' ? 'exec' : 'pending';
+    const statusLabel = t.status || 'queued';
+    const txLink = t.tx_hash ? `<a class="tx" href="https://evmscan.0g.ai/tx/${t.tx_hash}" target="_blank">${t.tx_hash.slice(0,8)}…${t.tx_hash.slice(-4)}</a>` : '<span class="muted">—</span>';
+    const wfId = t.workflow_id ? t.workflow_id.slice(0, 8) : (t.execution_id || 'N/A').slice(0, 8);
+    return `<tr>
+      <td class="id">#${t.id}</td>
+      <td class="type">${(t.task_type || 'TASK').toUpperCase()}</td>
+      <td><span class="st ${statusCls}">● ${statusLabel}</span></td>
+      <td>${txLink}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderInftGrid(infts) {
+  const grid = document.getElementById('inft-grid');
+  if (!grid || !infts.length) return;
+  grid.innerHTML = infts.map(n => {
+    const rootShort = n.root_hash ? n.root_hash.slice(0, 10) + '…' + n.root_hash.slice(-8) : '—';
+    const txShort = n.mint_tx ? n.mint_tx.slice(0, 10) + '…' + n.mint_tx.slice(-8) : '—';
+    const ts = n.minted_at ? new Date(n.minted_at).toLocaleTimeString() : '—';
+    const rootLink = n.root_hash ? `<a href="https://storagescan-newton.0g.ai/" target="_blank">${rootShort}</a>` : rootShort;
+    const txLink = n.mint_tx ? `<a href="https://evmscan.0g.ai/tx/${n.mint_tx}" target="_blank">${txShort}</a>` : txShort;
+    return `<article class="inft">
+      <div class="body">
+        <div class="top">
+          <span class="badge">v${n.version || 1}</span>
+          <span class="agent">By ${(n.agent_id || 'execution').toUpperCase()}</span>
+        </div>
+        <div class="name">${n.strategy_name || 'Strategy iNFT'}</div>
+        <div class="stats">
+          <div>
+            <div class="perf-l">Token ID</div>
+            <div class="perf" style="font-size:18px">#${n.token_id}</div>
+          </div>
+          <div class="ts">Minted<br>${ts}</div>
+        </div>
+        <div class="links">
+          <div class="row"><span>ROOT_HASH</span>${rootLink}</div>
+          <div class="row"><span>MINT_TX</span>${txLink}</div>
+        </div>
+      </div>
+    </article>`;
+  }).join('');
+}
+
+function renderTreasury(treasury, history) {
+  if (!treasury) return;
+  const ethBal = parseFloat(treasury.eth_balance || 0);
+  const usdVal = treasury.usd_value || '$0.00';
+  if (document.getElementById('t-bal')) document.getElementById('t-bal').textContent = ethBal.toFixed(3) + ' ETH';
+  if (document.getElementById('t-usd')) document.getElementById('t-usd').textContent = usdVal;
+  if (document.getElementById('d-treasury')) document.getElementById('d-treasury').textContent = usdVal;
+  if (document.getElementById('hero-treas')) document.getElementById('hero-treas').textContent = usdVal;
+  if (history && history.length > 1) {
+    const vals = history.map(h => parseFloat(h.eth_balance || 0));
+    const W = 300, H = 80, P = 4;
+    const min = Math.min(...vals), max = Math.max(...vals);
+    const range = max - min || 1;
+    const pts = vals.map((v, i) => {
+      const x = P + (W - P * 2) * (i / (vals.length - 1));
+      const y = H - P - (H - P * 2) * ((v - min) / range);
+      return [x, y];
+    });
+    const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+    const fill = `M${pts[0][0].toFixed(1)} ${H} ` + pts.map(p => 'L' + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ') + ` L${pts[pts.length - 1][0].toFixed(1)} ${H} Z`;
+    const sl = document.getElementById('spark-line');
+    const sf = document.getElementById('spark-fill');
+    const sd = document.getElementById('spark-dot');
+    if (sl) sl.setAttribute('d', line);
+    if (sf) sf.setAttribute('d', fill);
+    if (sd) { sd.setAttribute('cx', pts[pts.length - 1][0]); sd.setAttribute('cy', pts[pts.length - 1][1]); }
+  }
+}
+
+function renderStats(stats) {
+  if (!stats) return;
+  if (document.getElementById('d-nfts')) document.getElementById('d-nfts').textContent = stats.inft_count || 0;
+  if (document.getElementById('hero-nfts')) document.getElementById('hero-nfts').textContent = stats.inft_count || 0;
+  if (document.getElementById('g-nfts')) document.getElementById('g-nfts').textContent = stats.inft_count || 0;
+}
+
+function renderServices(services) {
+  if (!services) return;
+  const map = { bridge: 0, keeperhub: 2 };
+  const cards = document.querySelectorAll('.sys-card');
+  Object.entries(map).forEach(([key, idx]) => {
+    const card = cards[idx];
+    if (!card) return;
+    const dot = card.querySelector('.d');
+    const st = card.querySelector('.st');
+    const isOnline = services[key] === 'online';
+    if (dot) dot.style.background = isOnline ? 'var(--mint-2)' : 'var(--coral-2)';
+    if (st) st.textContent = isOnline ? 'Online' : 'Offline';
+  });
+}
+
+async function fetchAndRender() {
+  try {
+    const [agents, axl, tasks, infts, treasury, history, stats, services] = await Promise.all([
+      fetch(`${API}/api/agents`).then(r => r.json()).catch(() => ({ agents: [] })),
+      fetch(`${API}/api/axl?limit=14`).then(r => r.json()).catch(() => ({ messages: [] })),
+      fetch(`${API}/api/tasks?limit=8`).then(r => r.json()).catch(() => ({ tasks: [] })),
+      fetch(`${API}/api/infts?limit=9`).then(r => r.json()).catch(() => ({ infts: [] })),
+      fetch(`${API}/api/treasury`).then(r => r.json()).catch(() => ({ treasury: null })),
+      fetch(`${API}/api/treasury/history?limit=60`).then(r => r.json()).catch(() => ({ history: [] })),
+      fetch(`${API}/api/stats`).then(r => r.json()).catch(() => ({ stats: null })),
+      fetch(`${API}/api/services`).then(r => r.json()).catch(() => null),
+    ]);
+    if (agents.agents && agents.agents.length) renderAgentCards(agents.agents);
+    if (axl.messages && axl.messages.length) renderAxlFeed(axl.messages);
+    if (tasks.tasks && tasks.tasks.length) renderKeeperTasks(tasks.tasks);
+    if (infts.infts && infts.infts.length) renderInftGrid(infts.infts);
+    if (treasury.treasury) renderTreasury(treasury.treasury, history.history || []);
+    if (stats.stats) renderStats(stats.stats);
+    if (services) renderServices(services);
+  } catch (e) {
+    console.warn('[MiliGents] API not reachable — running on mock data', e);
+  }
+}
+
+/* Initial fetch */
+fetchAndRender();
+
+/* Poll every 5s as fallback */
+setInterval(fetchAndRender, 5000);
+
+/* WebSocket live feed */
+(function connectWS() {
+  const wsUrl = API.replace('http', 'ws') + '/api/feed/live';
+  let ws;
+  try {
+    ws = new WebSocket(wsUrl);
+    ws.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.agents && data.agents.length) renderAgentCards(data.agents);
+        if (data.axl && data.axl.length) renderAxlFeed(data.axl);
+        if (data.tasks && data.tasks.length) renderKeeperTasks(data.tasks);
+        if (data.infts && data.infts.length) renderInftGrid(data.infts);
+        if (data.treasury) renderTreasury(data.treasury, []);
+        if (data.stats) renderStats(data.stats);
+      } catch (err) {}
+    };
+    ws.onclose = () => setTimeout(connectWS, 4000);
+    ws.onerror = () => ws.close();
+  } catch (e) {}
+})();
+/* ================= END API WIRING ================= */
 </script>
 </body>
 </html>
