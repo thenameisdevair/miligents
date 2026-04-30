@@ -10,6 +10,7 @@ import sys
 import os
 import signal
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
+from integrations.state_writer import write_agent_status
 
 from crewai import Crew, Process
 from agents.research_specialist.agent import create_specialist
@@ -60,14 +61,17 @@ def run():
     signal.signal(signal.SIGTERM, handle_shutdown)
 
     print(f"[Specialist] Starting research on '{domain}'...")
+    write_agent_status("specialist", "running", current_task=f"Researching domain: {domain}")
     print("[Specialist] Press Ctrl+C to stop\n")
 
     try:
         result = crew.kickoff()
         print("\n[Specialist] Research complete.")
         print("[Specialist] Result:", result)
+        write_agent_status("specialist", "complete", result=str(result))
     except KeyboardInterrupt:
         print("\n[Specialist] Stopped by user.")
+        write_agent_status("specialist", "idle")
 
 
 if __name__ == "__main__":

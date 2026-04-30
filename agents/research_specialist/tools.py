@@ -10,6 +10,7 @@ import json
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
+from integrations.state_writer import write_agent_status, write_axl_message, write_storage_record
 
 from crewai.tools import tool
 from integrations.bridge_client import upload_data
@@ -84,6 +85,8 @@ def store_report_tool(data: str, filename: str) -> str:
             text=data,
             metadata={"root_hash": root_hash, "filename": filename}
         )
+        write_storage_record("specialist", filename, root_hash)
+        write_agent_status("specialist", "running", current_task=f"Stored report: {filename}")
         return f"Stored successfully. root_hash: {root_hash}"
     except Exception as e:
         return f"Storage failed: {e}"
@@ -163,6 +166,12 @@ def send_report_tool(
             }
         )
         success = send_message(originator_pubkey, message)
+        if success:
+            write_axl_message("specialist", "originator", "REPORT", {
+                "summary": report_summary,
+                "root_hash": root_hash,
+                "status": "complete"
+            })
         return "sent" if success else "failed to send"
     except Exception as e:
         return f"AXL send failed: {e}"
