@@ -10,6 +10,7 @@ import os
 import signal
 import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
+from integrations.state_writer import write_agent_status
 
 from crewai import Crew, Process
 from agents.originator.agent import create_originator
@@ -55,6 +56,7 @@ def run():
     )
 
     print("[Originator] Starting research loop...")
+    write_agent_status("originator", "running", current_task="Starting research loop")
     print("[Originator] Press Ctrl+C to stop gracefully\n")
 
     def handle_shutdown(sig, frame):
@@ -68,8 +70,10 @@ def run():
         result = crew.kickoff()
         print("\n[Originator] Research loop complete.")
         print("[Originator] Result:", result)
+        write_agent_status("originator", "complete", result=str(result))
     except KeyboardInterrupt:
         print("\n[Originator] Stopped by user.")
+        write_agent_status("originator", "idle")
 
 
 if __name__ == "__main__":
