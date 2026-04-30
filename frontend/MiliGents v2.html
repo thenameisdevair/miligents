@@ -1475,7 +1475,7 @@ setInterval(()=>{
 }, 1800);
 
 /* ================= API WIRING ================= */
-const API = (typeof window !== 'undefined' && window.MILIGENTS_API) || 'http://localhost:8080';
+const API = (typeof window !== 'undefined' && window.MILIGENTS_API) || 'http://localhost:8081';
 
 function agentStatusClass(status) {
   if (status === 'running') return 'run';
