@@ -1,0 +1,1099 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MiniGent — Autonomous Agent System</title>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#0a0a0f;
+    --bg-1:#0e0e16;
+    --panel:#12121a;
+    --panel-2:#161620;
+    --hover:#1a1a26;
+    --line:#1f1f2e;
+    --line-2:#2a2a3d;
+    --text:#e8e8f0;
+    --dim:#7a7a8c;
+    --dim-2:#4a4a5c;
+    --green:#00ff88;
+    --green-dim:#00b86a;
+    --green-rgb:0,255,136;
+    --green-glow:0 0 0 1px rgba(var(--green-rgb),.25), 0 0 24px rgba(var(--green-rgb),.18);
+    --gold:#f0b429;
+    --gold-dim:#a07810;
+    --gold-rgb:240,180,41;
+    --red:#ff4444;
+    --red-dim:#9c1f1f;
+    --blue:#5b9dff;
+    --purple:#b07cff;
+    --mono:'JetBrains Mono', ui-monospace, monospace;
+    --sans:'Space Grotesk', system-ui, sans-serif;
+    --display:'Syne', 'Space Grotesk', system-ui, sans-serif;
+    /* tweak-driven */
+    --vibe:1;            /* multiplier for animation speed */
+    --density-pad:1;     /* multiplier for paddings */
+    --density-font:1;    /* multiplier for body font */
+    --grid-op:1;         /* backdrop grid visibility */
+    --signature-noise:0; /* extra cockpit chrome */
+  }
+
+  /* ===== SIGNATURE PALETTES ===== */
+  html[data-sig="hazard"]{
+    --green:#f0b429; --green-dim:#a07810; --green-rgb:240,180,41;
+    --gold:#ff4444; --gold-dim:#9c1f1f; --gold-rgb:255,68,68;
+  }
+  html[data-sig="ion"]{
+    --green:#5b9dff; --green-dim:#2c5fb8; --green-rgb:91,157,255;
+    --gold:#b07cff; --gold-dim:#6e3fbb; --gold-rgb:176,124,255;
+  }
+  html[data-sig="mono"]{
+    --green:#e8e8f0; --green-dim:#9a9ab0; --green-rgb:232,232,240;
+    --gold:#7a7a8c; --gold-dim:#4a4a5c; --gold-rgb:122,122,140;
+  }
+
+  /* ===== DENSITY ===== */
+  html[data-density="compact"]{ --density-pad:.7; --density-font:.92 }
+  html[data-density="comfy"]{   --density-pad:1.25; --density-font:1.06 }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  body{
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(0,255,136,.05), transparent 60%),
+      radial-gradient(900px 500px at -10% 100%, rgba(240,180,41,.04), transparent 55%),
+      var(--bg);
+    min-height:100vh;
+    background-attachment: fixed;
+  }
+  /* subtle grid backdrop */
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:
+      linear-gradient(rgba(255,255,255,.012) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.012) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse at center, black 40%, transparent 90%);
+  }
+
+  /* ===== TOP NAV ===== */
+  .topbar{
+    position:sticky; top:0; z-index:50;
+    display:flex; align-items:center; gap:24px;
+    padding:14px 28px;
+    background:rgba(10,10,15,.85);
+    backdrop-filter: blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .brand{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:800;letter-spacing:.06em;font-size:18px}
+  .brand .logo{
+    width:22px;height:22px;border-radius:4px;
+    background:
+      conic-gradient(from 220deg, var(--green) 0 25%, transparent 25% 50%, var(--gold) 50% 75%, transparent 75%),
+      #000;
+    box-shadow: 0 0 0 1px var(--line-2), 0 0 18px rgba(0,255,136,.25);
+    position:relative;
+  }
+  .brand .logo::after{content:"";position:absolute;inset:5px;background:#000;border-radius:2px}
+  .brand .name{display:flex;align-items:baseline;gap:6px}
+  .brand .name b{color:var(--green)}
+  .brand .ver{font-family:var(--mono);font-weight:400;font-size:10px;color:var(--dim);letter-spacing:.18em;padding:2px 6px;border:1px solid var(--line-2);border-radius:3px;margin-left:6px}
+
+  .nav{display:flex;gap:4px;margin-left:18px}
+  .nav button{
+    background:transparent;border:1px solid transparent;color:var(--dim);
+    font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+    padding:8px 14px;border-radius:4px;cursor:pointer;display:flex;align-items:center;gap:8px;
+    transition:.15s;
+  }
+  .nav button:hover{color:var(--text);background:var(--hover)}
+  .nav button.active{color:var(--green);border-color:rgba(0,255,136,.3);background:rgba(0,255,136,.06);box-shadow:inset 0 -1px 0 var(--green)}
+  .nav button .num{color:var(--dim-2);font-size:10px}
+  .nav button.active .num{color:var(--green-dim)}
+
+  .topright{margin-left:auto;display:flex;align-items:center;gap:18px;font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.08em}
+  .topright .stat{display:flex;align-items:center;gap:8px}
+  .topright .stat .v{color:var(--text)}
+  .topright .stat .v.green{color:var(--green)}
+  .topright .stat .v.gold{color:var(--gold)}
+  .clock{color:var(--text);font-variant-numeric:tabular-nums}
+  .live{display:inline-flex;align-items:center;gap:6px;color:var(--green)}
+  .live .dot{width:6px;height:6px;background:var(--green);border-radius:50%;box-shadow:0 0 8px var(--green);animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.4;transform:scale(.85)}50%{opacity:1;transform:scale(1.15)}}
+
+  /* ===== LAYOUT ===== */
+  main{position:relative;z-index:1;padding:28px;max-width:1600px;margin:0 auto}
+  .section{display:none}
+  .section.active{display:block;animation:fade .35s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  .section-head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:24px;gap:24px;border-bottom:1px solid var(--line);padding-bottom:18px}
+  .section-head h1{
+    font-family:var(--display);font-weight:800;font-size:42px;letter-spacing:-.01em;margin:0;line-height:1;
+  }
+  .section-head .crumb{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.24em;text-transform:uppercase;margin-bottom:10px}
+  .section-head .sub{color:var(--dim);font-size:13px;max-width:520px;margin-top:8px}
+  .section-head .meta{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:right;line-height:1.7}
+  .section-head .meta b{color:var(--text);font-weight:500}
+
+  /* ===== PANEL ===== */
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:6px;
+    position:relative;
+  }
+  .panel-h{
+    display:flex;align-items:center;gap:10px;
+    padding:12px 16px;border-bottom:1px solid var(--line);
+    font-family:var(--mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);
+  }
+  .panel-h .tag{color:var(--green);}
+  .panel-h .right{margin-left:auto;display:flex;gap:14px;color:var(--dim-2)}
+  .panel-h .right span{color:var(--dim)}
+  .panel-h .corner{position:absolute;width:6px;height:6px;border:1px solid var(--line-2)}
+  .panel .tl{top:-1px;left:-1px;border-right:none;border-bottom:none}
+  .panel .tr{top:-1px;right:-1px;border-left:none;border-bottom:none}
+  .panel .bl{bottom:-1px;left:-1px;border-right:none;border-top:none}
+  .panel .br{bottom:-1px;right:-1px;border-left:none;border-top:none}
+
+  /* ===== SECTION 1: LAUNCH ===== */
+  .launch-grid{display:grid;grid-template-columns: 1.2fr 1fr;gap:20px}
+  .deploy{padding:24px}
+  .deploy h3{font-family:var(--mono);font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:var(--dim);margin:0 0 18px}
+  .field{margin-bottom:18px}
+  .field label{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);margin-bottom:8px}
+  .field label .req{color:var(--green);margin-left:6px}
+  .input, .select{
+    width:100%;background:var(--bg-1);border:1px solid var(--line);border-radius:4px;
+    color:var(--text);font-family:var(--mono);font-size:13px;padding:12px 14px;outline:none;transition:.15s;
+  }
+  .input:focus, .select:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(0,255,136,.08)}
+  .input.mono{font-family:var(--mono)}
+  .input::placeholder{color:var(--dim-2)}
+
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .amount{position:relative}
+  .amount .input{padding-right:90px;font-size:18px;font-weight:500;letter-spacing:-.01em}
+  .amount .unit{
+    position:absolute;right:10px;top:50%;transform:translateY(-50%);
+    display:flex;border:1px solid var(--line);border-radius:3px;overflow:hidden;
+  }
+  .amount .unit button{
+    background:transparent;border:0;color:var(--dim);font-family:var(--mono);font-size:10px;
+    padding:5px 10px;cursor:pointer;letter-spacing:.1em;
+  }
+  .amount .unit button.on{background:var(--green);color:#001a0d;font-weight:600}
+  .amount .helper{position:absolute;right:14px;bottom:-18px;font-family:var(--mono);font-size:10px;color:var(--dim-2)}
+
+  .select{appearance:none;background-image:linear-gradient(45deg,transparent 50%, var(--dim) 50%),linear-gradient(-45deg,transparent 50%, var(--dim) 50%);background-position:calc(100% - 18px) 18px, calc(100% - 12px) 18px;background-size:6px 6px,6px 6px;background-repeat:no-repeat;padding-right:42px}
+
+  .deploy-btn{
+    margin-top:14px;width:100%;
+    background:linear-gradient(180deg, rgba(0,255,136,.12), rgba(0,255,136,.05));
+    border:1px solid rgba(0,255,136,.5);
+    color:var(--green);
+    font-family:var(--display);font-weight:800;font-size:22px;letter-spacing:.18em;
+    padding:24px;border-radius:5px;cursor:pointer;
+    position:relative;overflow:hidden;
+    box-shadow: var(--green-glow), inset 0 0 30px rgba(0,255,136,.06);
+    transition:.2s;
+  }
+  .deploy-btn:hover{background:linear-gradient(180deg, rgba(0,255,136,.22), rgba(0,255,136,.08));transform:translateY(-1px);box-shadow: 0 0 0 1px rgba(0,255,136,.5), 0 0 40px rgba(0,255,136,.35), inset 0 0 30px rgba(0,255,136,.1)}
+  .deploy-btn::before{
+    content:"";position:absolute;inset:0;
+    background:linear-gradient(90deg, transparent, rgba(0,255,136,.18), transparent);
+    transform:translateX(-100%);
+    animation: sweep 3s ease-in-out infinite;
+  }
+  @keyframes sweep{0%{transform:translateX(-100%)}60%{transform:translateX(100%)}100%{transform:translateX(100%)}}
+  .deploy-btn .arrow{display:inline-block;margin-left:14px;transition:.2s}
+  .deploy-btn:hover .arrow{transform:translateX(6px)}
+  .deploy-btn-sub{display:block;font-family:var(--mono);font-size:10px;font-weight:400;letter-spacing:.22em;color:var(--green-dim);margin-top:6px}
+
+  /* checklist */
+  .checklist{padding:0}
+  .check-list{list-style:none;margin:0;padding:0}
+  .check-list li{
+    display:flex;align-items:center;gap:14px;
+    padding:14px 18px;border-bottom:1px solid var(--line);
+    font-family:var(--mono);font-size:12px;
+  }
+  .check-list li:last-child{border-bottom:none}
+  .check-list .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .check-list .dot.on{background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s infinite}
+  .check-list .dot.off{background:var(--red);box-shadow:0 0 8px rgba(255,68,68,.7)}
+  .check-list .name{color:var(--text);flex:1;letter-spacing:.04em}
+  .check-list .desc{color:var(--dim-2);font-size:10px;letter-spacing:.1em;text-transform:uppercase;margin-right:10px}
+  .check-list .lat{color:var(--dim);font-size:10px;font-variant-numeric:tabular-nums}
+  .check-list .status{font-size:10px;letter-spacing:.18em;text-transform:uppercase}
+  .check-list .status.on{color:var(--green)}
+  .check-list .status.off{color:var(--red)}
+
+  /* breakdown */
+  .breakdown{padding:18px;border-top:1px solid var(--line)}
+  .breakdown h4{font-family:var(--mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);margin:0 0 12px}
+  .alloc-bar{height:10px;background:var(--bg-1);border-radius:2px;overflow:hidden;display:flex;border:1px solid var(--line)}
+  .alloc-bar > div{height:100%}
+  .alloc-legend{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;font-family:var(--mono);font-size:11px}
+  .alloc-legend .k{display:flex;align-items:center;gap:8px;color:var(--dim)}
+  .alloc-legend .sw{width:9px;height:9px;border-radius:1px}
+  .alloc-legend .v{color:var(--text);float:right}
+  .alloc-legend .l{display:flex;justify-content:space-between}
+  .gas{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;padding:14px 18px;border-top:1px solid var(--line);color:var(--dim)}
+  .gas b{color:var(--gold);font-weight:500}
+
+  /* ===== SECTION 2: LIVE ===== */
+  .agent-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
+  .agent-card{
+    background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:18px;
+    position:relative;overflow:hidden;
+  }
+  .agent-card .ring{
+    position:absolute;top:18px;right:18px;width:54px;height:54px;border-radius:50%;
+    border:1px solid var(--line-2);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .agent-card .ring::before, .agent-card .ring::after{
+    content:"";position:absolute;inset:-1px;border-radius:50%;border:1px solid currentColor;opacity:0;
+  }
+  .agent-card .ring .core{width:14px;height:14px;border-radius:50%;background:currentColor;box-shadow:0 0 12px currentColor}
+  .agent-card.active .ring{color:var(--green)}
+  .agent-card.active .ring::before{animation: ringPulse 2.4s ease-out infinite}
+  .agent-card.active .ring::after{animation: ringPulse 2.4s ease-out infinite .8s}
+  .agent-card.spawn .ring{color:var(--gold)}
+  .agent-card.spawn .ring::before{animation: ringPulse 1.8s ease-out infinite}
+  .agent-card.idle .ring{color:var(--dim-2)}
+  @keyframes ringPulse{0%{transform:scale(.85);opacity:.7}100%{transform:scale(1.9);opacity:0}}
+
+  .agent-card .label{font-family:var(--mono);font-size:9px;letter-spacing:.24em;text-transform:uppercase;color:var(--dim-2)}
+  .agent-card .name{font-family:var(--display);font-weight:700;font-size:20px;margin:6px 0 14px;letter-spacing:.01em}
+  .agent-card .stat{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase}
+  .agent-card.active .stat{color:var(--green)}
+  .agent-card.spawn .stat{color:var(--gold)}
+  .agent-card.idle .stat{color:var(--dim)}
+  .agent-card .stat .blink{animation:blink 1s step-end infinite}
+  @keyframes blink{50%{opacity:0}}
+
+  .agent-card .meta{margin-top:18px;display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--dim);border-top:1px solid var(--line);padding-top:12px}
+  .agent-card .meta b{color:var(--text);font-weight:500;font-variant-numeric:tabular-nums}
+  .agent-card .id{position:absolute;top:18px;left:18px;font-family:var(--mono);font-size:9px;color:var(--dim-2);letter-spacing:.2em}
+
+  /* feeds */
+  .feed-grid{display:grid;grid-template-columns:1.2fr 1.2fr 1fr;gap:16px}
+  .feed{height:540px;display:flex;flex-direction:column}
+  .feed-body{flex:1;overflow:hidden;position:relative;font-family:var(--mono);font-size:11.5px;line-height:1.6}
+  .feed-body::before{content:"";position:absolute;top:0;left:0;right:0;height:32px;background:linear-gradient(180deg,var(--panel),transparent);z-index:2;pointer-events:none}
+  .feed-body::after{content:"";position:absolute;bottom:0;left:0;right:0;height:32px;background:linear-gradient(0deg,var(--panel),transparent);z-index:2;pointer-events:none}
+  .feed-scroll{position:absolute;inset:0;padding:14px 16px;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden}
+
+  /* activity log lines */
+  .log-line{display:flex;gap:10px;padding:3px 0;color:var(--dim);align-items:flex-start}
+  .log-line.fade{animation: lineIn .3s ease}
+  @keyframes lineIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .log-line .ts{color:var(--dim-2);flex:0 0 auto}
+  .log-line .agent{flex:0 0 auto;padding:1px 6px;border-radius:2px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:500}
+  .log-line .msg{color:var(--text);min-width:0}
+  .log-line .msg .hl-g{color:var(--green)}
+  .log-line .msg .hl-y{color:var(--gold)}
+  .log-line .msg .hl-r{color:var(--red)}
+  .log-line .msg .hl-d{color:var(--dim)}
+  .ag-orig{background:rgba(91,157,255,.12);color:#7eb1ff}
+  .ag-rs{background:rgba(176,124,255,.12);color:#c79dff}
+  .ag-ex{background:rgba(0,255,136,.12);color:var(--green)}
+  .ag-br{background:rgba(240,180,41,.12);color:var(--gold)}
+  .ag-sys{background:rgba(255,255,255,.06);color:var(--dim)}
+
+  /* axl messages */
+  .axl-msg{
+    border:1px solid var(--line);background:var(--bg-1);border-radius:3px;
+    padding:9px 11px;margin-bottom:8px;
+    display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;
+  }
+  .axl-msg.flash{animation: msgFlash 1s ease}
+  @keyframes msgFlash{0%{border-color:var(--green);box-shadow:0 0 16px rgba(0,255,136,.25)}100%{border-color:var(--line);box-shadow:none}}
+  .axl-msg .head{grid-column:1 / -1;display:flex;align-items:center;gap:8px;font-size:10px}
+  .axl-msg .from{color:var(--text)}
+  .axl-msg .arrow{color:var(--dim-2)}
+  .axl-msg .to{color:var(--text)}
+  .axl-msg .type{margin-left:auto;font-size:9px;letter-spacing:.18em;padding:1px 6px;border-radius:2px;text-transform:uppercase}
+  .type-INSTRUCTION{background:rgba(91,157,255,.14);color:#7eb1ff}
+  .type-RESEARCH{background:rgba(176,124,255,.14);color:#c79dff}
+  .type-RESULT{background:rgba(0,255,136,.14);color:var(--green)}
+  .type-SETTLE{background:rgba(240,180,41,.14);color:var(--gold)}
+  .axl-msg .payload{grid-column:1 / -1;color:var(--dim);font-size:10.5px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .axl-msg .payload b{color:var(--text);font-weight:500}
+  .axl-msg .ts{grid-column:1 / -1;color:var(--dim-2);font-size:9px;letter-spacing:.14em}
+
+  /* treasury */
+  .treasury-body{padding:18px;display:flex;flex-direction:column;gap:18px;flex:1;overflow:auto}
+  .treasury-bal{display:flex;flex-direction:column;gap:4px}
+  .treasury-bal .label{font-family:var(--mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim)}
+  .treasury-bal .eth{font-family:var(--display);font-weight:800;font-size:38px;color:var(--gold);letter-spacing:-.01em;line-height:1;font-variant-numeric:tabular-nums}
+  .treasury-bal .usd{font-family:var(--mono);font-size:13px;color:var(--dim);font-variant-numeric:tabular-nums}
+  .treasury-bal .delta{display:inline-flex;align-items:center;gap:4px;color:var(--green);font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums}
+
+  .spark{height:64px;background:var(--bg-1);border:1px solid var(--line);border-radius:3px;padding:6px}
+  .spark svg{width:100%;height:100%;display:block}
+
+  .swap-card{
+    background:var(--bg-1);border:1px solid var(--line);border-radius:3px;
+    padding:12px;font-family:var(--mono);font-size:11px;
+  }
+  .swap-card .h{display:flex;justify-content:space-between;color:var(--dim);font-size:10px;letter-spacing:.18em;text-transform:uppercase;margin-bottom:8px}
+  .swap-card .h .pair{color:var(--gold)}
+  .swap-card .row{display:flex;justify-content:space-between;color:var(--text);margin-bottom:4px;font-variant-numeric:tabular-nums}
+  .swap-card .row span:first-child{color:var(--dim)}
+
+  .keeper{
+    background:var(--bg-1);border:1px solid var(--line);border-radius:3px;
+    padding:12px;
+  }
+  .keeper .h{display:flex;justify-content:space-between;color:var(--dim);font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;margin-bottom:10px}
+  .keeper .nums{display:flex;align-items:baseline;gap:6px;font-family:var(--display);font-weight:700}
+  .keeper .nums .a{font-size:32px;color:var(--green)}
+  .keeper .nums .sep{color:var(--dim-2);font-size:22px}
+  .keeper .nums .b{font-size:22px;color:var(--text)}
+  .keeper .nums .lab{font-family:var(--mono);font-size:10px;color:var(--dim);font-weight:400;letter-spacing:.16em;margin-left:auto;text-transform:uppercase}
+  .keeper .bar{height:4px;background:#1a1a26;border-radius:2px;margin-top:10px;overflow:hidden}
+  .keeper .bar > div{height:100%;background:linear-gradient(90deg,var(--green),var(--gold))}
+
+  /* ===== SECTION 3: PORTFOLIO ===== */
+  .port-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px}
+  .stat-card{
+    background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:22px;
+    position:relative;overflow:hidden;
+  }
+  .stat-card .l{font-family:var(--mono);font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:var(--dim)}
+  .stat-card .v{font-family:var(--display);font-weight:800;font-size:48px;letter-spacing:-.01em;line-height:1;margin:10px 0 6px;font-variant-numeric:tabular-nums}
+  .stat-card .v.green{color:var(--green)}
+  .stat-card .v.gold{color:var(--gold)}
+  .stat-card .v.text{color:var(--text)}
+  .stat-card .d{font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .stat-card .d b{color:var(--text);font-weight:500}
+  .stat-card .glyph{position:absolute;right:18px;top:18px;font-family:var(--mono);font-size:10px;color:var(--dim-2);letter-spacing:.18em}
+
+  .port-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:16px;font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .chip{
+    border:1px solid var(--line);padding:6px 10px;border-radius:3px;
+    color:var(--dim);font-size:10px;letter-spacing:.14em;text-transform:uppercase;cursor:pointer;
+    background:transparent;
+  }
+  .chip.on{border-color:var(--green);color:var(--green);background:rgba(0,255,136,.06)}
+  .port-toolbar .filler{flex:1}
+
+  .inft-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  @media (max-width:1280px){.inft-grid{grid-template-columns:repeat(3,1fr)}}
+  @media (max-width:960px){.inft-grid{grid-template-columns:repeat(2,1fr)}}
+
+  .inft{
+    background:var(--panel);border:1px solid var(--line);border-radius:6px;
+    padding:18px;position:relative;cursor:pointer;transition:.2s;
+    display:flex;flex-direction:column;gap:14px;overflow:hidden;
+  }
+  .inft::before{
+    content:"";position:absolute;inset:0;border-radius:6px;pointer-events:none;
+    background:radial-gradient(400px 200px at 50% 0%, rgba(240,180,41,.08), transparent 60%);
+    opacity:0;transition:.3s;
+  }
+  .inft:hover{border-color:rgba(240,180,41,.5);box-shadow:0 0 0 1px rgba(240,180,41,.3),0 0 32px rgba(240,180,41,.18);transform:translateY(-2px)}
+  .inft:hover::before{opacity:1}
+
+  .inft .top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+  .inft .badge{
+    font-family:var(--mono);font-size:10px;letter-spacing:.18em;
+    padding:3px 8px;border-radius:2px;background:var(--bg-1);border:1px solid var(--line-2);color:var(--gold);
+    text-transform:uppercase;
+  }
+  .inft .agent-tag{font-family:var(--mono);font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);padding:3px 8px;border:1px solid var(--line);border-radius:2px}
+
+  .inft .title{font-family:var(--display);font-weight:700;font-size:18px;letter-spacing:.01em;line-height:1.2}
+  .inft .meta{font-family:var(--mono);font-size:10.5px;color:var(--dim);display:flex;flex-direction:column;gap:6px}
+  .inft .meta .row{display:flex;justify-content:space-between;gap:8px}
+  .inft .meta .row span:first-child{color:var(--dim-2);letter-spacing:.14em;text-transform:uppercase;font-size:9px}
+  .inft .meta .row .v{color:var(--text);font-variant-numeric:tabular-nums}
+  .inft .hash{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;color:var(--text)}
+  .inft .copy{background:transparent;border:1px solid var(--line);color:var(--dim);font-family:var(--mono);font-size:9px;padding:2px 6px;border-radius:2px;cursor:pointer;letter-spacing:.1em}
+  .inft .copy:hover{color:var(--green);border-color:var(--green)}
+
+  .inft .perf{display:flex;align-items:flex-end;justify-content:space-between;border-top:1px solid var(--line);padding-top:12px}
+  .inft .perf .l{font-family:var(--mono);font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim)}
+  .inft .perf .score{font-family:var(--display);font-weight:800;font-size:24px;color:var(--green);font-variant-numeric:tabular-nums;line-height:1}
+  .inft .perf .score.warn{color:var(--gold)}
+  .inft .perf .score.red{color:var(--red)}
+  .inft .perf .bars{display:flex;gap:2px;align-items:flex-end;height:24px}
+  .inft .perf .bars i{display:block;width:3px;background:var(--dim-2);border-radius:1px}
+  .inft .perf .bars i.on{background:var(--green)}
+
+  .inft .explorer{
+    font-family:var(--mono);font-size:10px;color:var(--dim);text-decoration:none;
+    border-top:1px solid var(--line);padding-top:10px;display:flex;justify-content:space-between;align-items:center;
+  }
+  .inft .explorer:hover{color:var(--green)}
+  .inft .explorer .ar{color:var(--dim-2);transition:.15s}
+  .inft .explorer:hover .ar{color:var(--green);transform:translateX(3px)}
+
+  /* utilities */
+  .mono{font-family:var(--mono)}
+  .uc{text-transform:uppercase;letter-spacing:.18em}
+  .dim{color:var(--dim)}
+
+  /* scrollbars */
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-track{background:var(--bg)}
+  ::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:4px}
+  ::-webkit-scrollbar-thumb:hover{background:#3a3a52}
+
+</style>
+</head>
+<body>
+
+<!-- =========== TOP NAV =========== -->
+<header class="topbar">
+  <div class="brand">
+    <div class="logo"></div>
+    <div class="name">MINI<b>GENT</b></div>
+    <span class="ver">v0.4.2 · MAINNET</span>
+  </div>
+
+  <nav class="nav" id="nav">
+    <button data-section="launch" class="active"><span class="num">01</span> Launch</button>
+    <button data-section="live"><span class="num">02</span> Live Dashboard</button>
+    <button data-section="portfolio"><span class="num">03</span> Portfolio</button>
+  </nav>
+
+  <div class="topright">
+    <div class="stat"><span>NETWORK</span><span class="v green">0G ◆ ETH</span></div>
+    <div class="stat"><span>GAS</span><span class="v">0.42 <span class="dim">gwei</span></span></div>
+    <div class="stat"><span>BLOCK</span><span class="v" id="block">21,847,392</span></div>
+    <div class="stat live"><span class="dot"></span><span>LIVE</span></div>
+    <div class="clock" id="clock">14:23:08 UTC</div>
+  </div>
+</header>
+
+<main>
+
+<!-- =========================================================== -->
+<!-- =================== SECTION 1 — LAUNCH ==================== -->
+<!-- =========================================================== -->
+<section class="section active" id="s-launch">
+  <div class="section-head">
+    <div>
+      <div class="crumb">SECTION 01 / DEPLOYMENT</div>
+      <h1>Launch an organism.</h1>
+      <p class="sub">Configure treasury, primary strategy and target services. Once deployed, the originator agent will spawn its specialists and begin executing autonomously.</p>
+    </div>
+    <div class="meta">
+      ORGANISM ID&nbsp;&nbsp;<b>—</b><br/>
+      OPERATOR&nbsp;&nbsp;<b>0x9f4b…ae21</b><br/>
+      PRE-FLIGHT&nbsp;&nbsp;<b style="color:var(--green)">4 / 5 READY</b>
+    </div>
+  </div>
+
+  <div class="launch-grid">
+
+    <!-- DEPLOY PANEL -->
+    <div class="panel deploy">
+      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+
+      <h3>◇ Deploy configuration</h3>
+
+      <div class="field">
+        <label>Operator wallet <span class="req">REQUIRED</span></label>
+        <input class="input mono" value="0x9f4b1a2cD3eF5b7a8c9D0123456789abcdef ae21" />
+      </div>
+
+      <div class="row2">
+        <div class="field amount">
+          <label>Treasury allocation</label>
+          <input class="input" id="treasury-input" value="48.250000" />
+          <div class="unit">
+            <button class="on" data-unit="ETH">ETH</button>
+            <button data-unit="USDC">USDC</button>
+          </div>
+          <div class="helper">≈ $156,812 USD</div>
+        </div>
+        <div class="field">
+          <label>Risk profile</label>
+          <select class="select">
+            <option>Balanced — moderate drawdown</option>
+            <option>Aggressive — high alpha</option>
+            <option>Conservative — capital preservation</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field" style="margin-top:8px">
+        <label>Primary strategy</label>
+        <select class="select">
+          <option>Agentic Trading — DEX arbitrage + mean reversion</option>
+          <option>Content Creation — research & syndication</option>
+          <option>Data Services — on-chain indexing & oracles</option>
+        </select>
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label>Spawn budget</label>
+          <input class="input mono" value="max 12 sub-agents" />
+        </div>
+        <div class="field">
+          <label>Auto-rebalance</label>
+          <select class="select">
+            <option>Every 4 hours</option>
+            <option>Every 1 hour</option>
+            <option>On signal only</option>
+          </select>
+        </div>
+      </div>
+
+      <button class="deploy-btn">
+        DEPLOY ORGANISM <span class="arrow">→</span>
+        <span class="deploy-btn-sub">SIGN & BROADCAST · EST. 14s CONFIRMATION</span>
+      </button>
+    </div>
+
+    <!-- CHECKLIST + BREAKDOWN -->
+    <div class="panel checklist">
+      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="panel-h">
+        <span class="tag">●</span> PRE-FLIGHT CHECKLIST
+        <div class="right"><span>RECHECK · 2s</span></div>
+      </div>
+      <ul class="check-list">
+        <li>
+          <span class="dot on"></span>
+          <span class="name">0G Storage</span>
+          <span class="desc">decentralized blob</span>
+          <span class="lat">42 ms</span>
+          <span class="status on">ONLINE</span>
+        </li>
+        <li>
+          <span class="dot on"></span>
+          <span class="name">0G Compute</span>
+          <span class="desc">inference cluster</span>
+          <span class="lat">88 ms</span>
+          <span class="status on">ONLINE</span>
+        </li>
+        <li>
+          <span class="dot on"></span>
+          <span class="name">Gensyn AXL</span>
+          <span class="desc">agent messaging</span>
+          <span class="lat">17 ms</span>
+          <span class="status on">ONLINE</span>
+        </li>
+        <li>
+          <span class="dot off"></span>
+          <span class="name">KeeperHub MCP</span>
+          <span class="desc">scheduler tasks</span>
+          <span class="lat">timeout</span>
+          <span class="status off">RECONNECTING</span>
+        </li>
+        <li>
+          <span class="dot on"></span>
+          <span class="name">Uniswap v4</span>
+          <span class="desc">router · base</span>
+          <span class="lat">126 ms</span>
+          <span class="status on">ONLINE</span>
+        </li>
+      </ul>
+
+      <div class="breakdown">
+        <h4>◇ Treasury allocation</h4>
+        <div class="alloc-bar">
+          <div style="width:55%;background:var(--green)"></div>
+          <div style="width:22%;background:var(--gold)"></div>
+          <div style="width:13%;background:var(--blue)"></div>
+          <div style="width:10%;background:var(--purple)"></div>
+        </div>
+        <div class="alloc-legend">
+          <div class="l"><div class="k"><span class="sw" style="background:var(--green)"></span>Trading float</div><span class="v">26.54 ETH</span></div>
+          <div class="l"><div class="k"><span class="sw" style="background:var(--gold)"></span>Reserve</div><span class="v">10.62 ETH</span></div>
+          <div class="l"><div class="k"><span class="sw" style="background:var(--blue)"></span>Compute credits</div><span class="v">6.27 ETH</span></div>
+          <div class="l"><div class="k"><span class="sw" style="background:var(--purple)"></span>Mint & gas pool</div><span class="v">4.82 ETH</span></div>
+        </div>
+      </div>
+
+      <div class="gas">
+        <span>EST. DEPLOY GAS</span>
+        <span><b>0.0184 ETH</b> &nbsp;<span class="dim">≈ $59.74</span></span>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+<!-- =========================================================== -->
+<!-- =================== SECTION 2 — LIVE ====================== -->
+<!-- =========================================================== -->
+<section class="section" id="s-live">
+  <div class="section-head">
+    <div>
+      <div class="crumb">SECTION 02 / OPERATIONS</div>
+      <h1>Live dashboard.</h1>
+      <p class="sub">Four cooperating agents. Encrypted P2P channel. Treasury executing on-chain in real time.</p>
+    </div>
+    <div class="meta">
+      ORGANISM&nbsp;&nbsp;<b>ORG-007 / atlas-prime</b><br/>
+      UPTIME&nbsp;&nbsp;<b id="uptime">14d 06h 42m 18s</b><br/>
+      P&amp;L · 24h&nbsp;&nbsp;<b style="color:var(--green)">+2.187 ETH (+4.74%)</b>
+    </div>
+  </div>
+
+  <!-- AGENT CARDS -->
+  <div class="agent-grid">
+    <div class="agent-card active">
+      <div class="id">AG-01</div>
+      <div class="ring"><div class="core"></div></div>
+      <div style="margin-top:34px"></div>
+      <div class="label">ORIGINATOR</div>
+      <div class="name">atlas.orig</div>
+      <div class="stat">▸ SPAWNING<span class="blink">_</span></div>
+      <div class="meta"><span>UPTIME <b>14d 06h</b></span><span>LAST <b>00:02s</b></span></div>
+    </div>
+    <div class="agent-card active">
+      <div class="id">AG-02</div>
+      <div class="ring"><div class="core"></div></div>
+      <div style="margin-top:34px"></div>
+      <div class="label">RESEARCH SPECIALIST</div>
+      <div class="name">scout.delta</div>
+      <div class="stat">▸ RESEARCHING<span class="blink">_</span></div>
+      <div class="meta"><span>UPTIME <b>14d 04h</b></span><span>LAST <b>00:11s</b></span></div>
+    </div>
+    <div class="agent-card active">
+      <div class="id">AG-03</div>
+      <div class="ring"><div class="core"></div></div>
+      <div style="margin-top:34px"></div>
+      <div class="label">EXECUTION AGENT</div>
+      <div class="name">forge.sigma</div>
+      <div class="stat">▸ EXECUTING<span class="blink">_</span></div>
+      <div class="meta"><span>UPTIME <b>13d 22h</b></span><span>LAST <b>00:04s</b></span></div>
+    </div>
+    <div class="agent-card idle">
+      <div class="id">AG-04</div>
+      <div class="ring"><div class="core"></div></div>
+      <div style="margin-top:34px"></div>
+      <div class="label">BRIDGE SERVICE</div>
+      <div class="name">relay.echo</div>
+      <div class="stat">▸ IDLE</div>
+      <div class="meta"><span>UPTIME <b>14d 06h</b></span><span>LAST <b>03:48m</b></span></div>
+    </div>
+  </div>
+
+  <!-- FEEDS -->
+  <div class="feed-grid">
+
+    <!-- COL 1: AGENT ACTIVITY -->
+    <div class="panel feed">
+      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="panel-h">
+        <span class="tag">●</span> AGENT ACTIVITY
+        <div class="right"><span id="act-count">2,184</span><span class="dim">events</span></div>
+      </div>
+      <div class="feed-body">
+        <div class="feed-scroll" id="activity-log"></div>
+      </div>
+    </div>
+
+    <!-- COL 2: AXL MESSAGE FEED -->
+    <div class="panel feed">
+      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="panel-h">
+        <span class="tag">●</span> AXL MESSAGE FEED
+        <div class="right"><span>P2P · ENCRYPTED</span></div>
+      </div>
+      <div class="feed-body">
+        <div class="feed-scroll" id="axl-feed"></div>
+      </div>
+    </div>
+
+    <!-- COL 3: TREASURY -->
+    <div class="panel feed">
+      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="panel-h">
+        <span class="tag" style="color:var(--gold)">◆</span> TREASURY
+        <div class="right"><span>VAULT 0xA1…F2</span></div>
+      </div>
+      <div class="treasury-body">
+        <div class="treasury-bal">
+          <div class="label">CURRENT BALANCE</div>
+          <div class="eth" id="bal-eth">50.437 ETH</div>
+          <div class="usd"><span id="bal-usd">$163,920.71</span> &nbsp;·&nbsp; <span class="delta">▲ <span id="bal-delta">+2.187</span> ETH (24h)</span></div>
+        </div>
+
+        <div class="spark">
+          <svg viewBox="0 0 200 60" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="spfill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#f0b429" stop-opacity=".4"/>
+                <stop offset="100%" stop-color="#f0b429" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <path id="spark-fill" d="" fill="url(#spfill)"/>
+            <path id="spark-line" d="" fill="none" stroke="#f0b429" stroke-width="1.5"/>
+            <circle id="spark-dot" cx="0" cy="0" r="2.4" fill="#f0b429"/>
+          </svg>
+        </div>
+
+        <div class="swap-card">
+          <div class="h"><span>LAST UNISWAP SWAP</span><span class="pair">USDC → ETH</span></div>
+          <div class="row"><span>IN</span><span>12,400.00 USDC</span></div>
+          <div class="row"><span>OUT</span><span style="color:var(--green)">3.812 ETH</span></div>
+          <div class="row"><span>PRICE</span><span>3,252.49</span></div>
+          <div class="row"><span>SLIPPAGE</span><span>0.04%</span></div>
+          <div class="row"><span>TX</span><span style="color:var(--dim)">0xa48c…d7e1</span></div>
+        </div>
+
+        <div class="keeper">
+          <div class="h"><span>KEEPERHUB</span><span>SCHEDULED</span></div>
+          <div class="nums"><span class="a" id="keeper-done">348</span><span class="sep">/</span><span class="b" id="keeper-total">412</span><span class="lab">EXECUTED</span></div>
+          <div class="bar"><div id="keeper-bar" style="width:84.5%"></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+<!-- =========================================================== -->
+<!-- ================ SECTION 3 — PORTFOLIO ==================== -->
+<!-- =========================================================== -->
+<section class="section" id="s-portfolio">
+  <div class="section-head">
+    <div>
+      <div class="crumb">SECTION 03 / iNFT VAULT</div>
+      <h1>Minted intelligence.</h1>
+      <p class="sub">Each card is a strategy minted as an iNFT on 0G. Versioned, signed, and tradable. Performance is measured against the organism's baseline.</p>
+    </div>
+    <div class="meta">
+      VAULT&nbsp;&nbsp;<b>0xA13c…7F2b</b><br/>
+      LAST MINT&nbsp;&nbsp;<b>2 min ago</b><br/>
+      INDEXED BY&nbsp;&nbsp;<b>0G EXPLORER</b>
+    </div>
+  </div>
+
+  <div class="port-stats">
+    <div class="stat-card">
+      <span class="glyph">◇ COUNT</span>
+      <div class="l">TOTAL iNFTs MINTED</div>
+      <div class="v text">128</div>
+      <div class="d"><b>+12</b> in last 24h · <b>v3</b> latest revision</div>
+    </div>
+    <div class="stat-card">
+      <span class="glyph">◇ ACTIVE</span>
+      <div class="l">STRATEGIES IN PRODUCTION</div>
+      <div class="v green">37</div>
+      <div class="d">28 trading · 6 content · 3 data services</div>
+    </div>
+    <div class="stat-card">
+      <span class="glyph">◆ PNL</span>
+      <div class="l">TOTAL VALUE GENERATED</div>
+      <div class="v gold">+18.42 ETH</div>
+      <div class="d"><b>$59,890.14</b> · realized + unrealized</div>
+    </div>
+  </div>
+
+  <div class="port-toolbar">
+    <button class="chip on">ALL · 128</button>
+    <button class="chip">TRADING · 96</button>
+    <button class="chip">CONTENT · 22</button>
+    <button class="chip">DATA · 10</button>
+    <div class="filler"></div>
+    <span class="dim">SORT</span>
+    <button class="chip on">PERFORMANCE ↓</button>
+    <button class="chip">RECENT</button>
+  </div>
+
+  <div class="inft-grid" id="inft-grid"></div>
+</section>
+
+</main>
+
+<script>
+/* =========================================================== */
+/* ====================== STATE / DATA ====================== */
+/* =========================================================== */
+const AGENTS = {
+  ORIG: { tag:'ORIGINATOR', cls:'ag-orig', short:'atlas.orig' },
+  RS:   { tag:'RESEARCH',   cls:'ag-rs',   short:'scout.delta' },
+  EX:   { tag:'EXECUTION',  cls:'ag-ex',   short:'forge.sigma' },
+  BR:   { tag:'BRIDGE',     cls:'ag-br',   short:'relay.echo' },
+  SYS:  { tag:'SYSTEM',     cls:'ag-sys',  short:'kernel' },
+};
+
+const ACTIVITY_TEMPLATES = [
+  { a:'RS', m:`scanning <span class="hl-g">UNI/ETH</span> mempool · depth 4096 ▸ found <span class="hl-y">0.42%</span> arb window` },
+  { a:'EX', m:`route quoted via <span class="hl-g">v4 hook</span> · slippage <span class="hl-d">0.04%</span> · <span class="hl-g">PASS</span>` },
+  { a:'EX', m:`tx broadcast <span class="hl-d">0x4f8a…b29c</span> ▸ confirmed <span class="hl-g">+0.0124 ETH</span>` },
+  { a:'ORIG', m:`spawning sub-agent <span class="hl-y">scout.delta-7</span> with budget <span class="hl-y">0.5 ETH</span>` },
+  { a:'RS', m:`ingested <span class="hl-d">14,820</span> rows from <span class="hl-g">0G storage</span> ▸ embedding…` },
+  { a:'BR', m:`relay <span class="hl-d">eth → base</span> · 12,400 USDC · ETA <span class="hl-y">42s</span>` },
+  { a:'SYS', m:`heartbeat ✓ all channels nominal · ping 17ms` },
+  { a:'EX', m:`rebalance window opened ▸ target <span class="hl-y">55/22/13/10</span>` },
+  { a:'RS', m:`sentiment vector updated ▸ <span class="hl-g">+0.31 σ</span> · model <span class="hl-d">delta-r2.4</span>` },
+  { a:'ORIG', m:`merged <span class="hl-y">strategy v12</span> ▸ minting iNFT root <span class="hl-d">b91a…e4</span>` },
+  { a:'EX', m:`approved spender <span class="hl-d">0xA1…F2</span> on <span class="hl-g">USDC</span> · cap 100k` },
+  { a:'BR', m:`KeeperHub task <span class="hl-y">#7421</span> registered ▸ next run T-04:00` },
+  { a:'RS', m:`anomaly: <span class="hl-r">orderbook thinning</span> on pair UNI/USDC · escalating` },
+  { a:'EX', m:`closed position <span class="hl-d">#218</span> · realized <span class="hl-g">+0.084 ETH</span>` },
+  { a:'ORIG', m:`risk score recalculated ▸ <span class="hl-g">0.42</span> (within band)` },
+];
+
+const AXL_MSGS = [
+  { from:'ORIG', to:'RS',  type:'INSTRUCTION', payload:'<b>scan</b> UNI/ETH for 4h-window arbitrage; budget 0.5 ETH' },
+  { from:'RS',  to:'EX',   type:'RESEARCH',    payload:'<b>signal</b> delta=+0.31σ · pair UNI/USDC · conf 0.78' },
+  { from:'EX',  to:'BR',   type:'INSTRUCTION', payload:'<b>bridge</b> 12,400 USDC eth→base via Relay v3' },
+  { from:'BR',  to:'EX',   type:'RESULT',      payload:'<b>settled</b> tx 0xa48c…d7e1 in 38s · fee 0.0021 ETH' },
+  { from:'EX',  to:'ORIG', type:'RESULT',      payload:'<b>filled</b> 3.812 ETH @ 3252.49 · slippage 0.04%' },
+  { from:'ORIG',to:'RS',   type:'INSTRUCTION', payload:'<b>fork</b> scout.delta-7 · scope=memecoins · cap=0.2 ETH' },
+  { from:'RS',  to:'ORIG', type:'RESULT',      payload:'<b>indexed</b> 14,820 rows · root_hash b91a…e4' },
+  { from:'EX',  to:'BR',   type:'SETTLE',      payload:'<b>settle</b> position #218 → vault · +0.084 ETH realized' },
+  { from:'ORIG',to:'EX',   type:'INSTRUCTION', payload:'<b>rebalance</b> portfolio to 55/22/13/10 weights' },
+  { from:'RS',  to:'ORIG', type:'RESEARCH',    payload:'<b>alert</b> orderbook thinning · pair UNI/USDC · severity LOW' },
+];
+
+const STRATEGIES = [
+  { name:'Atlas Mean Reversion',     v:'v3', type:'TRADING', date:'2026-04-21', hash:'b91a4e2c…7f2bd401', score:94, trend:[2,3,4,5,6,7,7,8] },
+  { name:'Delta Arb · UNI/ETH',      v:'v2', type:'TRADING', date:'2026-04-19', hash:'4f8a9c12…b29c0e7a', score:88, trend:[3,4,5,5,6,7,7,7] },
+  { name:'Memecoin Sentiment Index', v:'v1', type:'CONTENT', date:'2026-04-18', hash:'a18cd7e1…49bc23f0', score:71, trend:[2,2,3,4,4,5,6,6] },
+  { name:'L2 Bridge Flow Oracle',    v:'v3', type:'DATA',    date:'2026-04-17', hash:'7f2b0193…6ad8e2c1', score:96, trend:[3,4,5,6,6,7,7,8] },
+  { name:'Sigma Liquidity Hunter',   v:'v2', type:'TRADING', date:'2026-04-15', hash:'c4d20e91…f1a2b3c4', score:82, trend:[3,4,4,5,5,6,7,7] },
+  { name:'Echo Stablecoin Carry',    v:'v1', type:'TRADING', date:'2026-04-13', hash:'9d4e21ac…2b8c4e10', score:67, trend:[2,3,3,4,4,5,5,6] },
+  { name:'Forge Funding Rate Edge',  v:'v4', type:'TRADING', date:'2026-04-10', hash:'2eb9c4a1…8f3d0712', score:91, trend:[3,4,5,5,6,7,8,8] },
+  { name:'Halo Yield Aggregator',    v:'v2', type:'DATA',    date:'2026-04-08', hash:'81a7b2c3…d4e5f607', score:78, trend:[2,3,4,4,5,5,6,7] },
+];
+
+/* =========================================================== */
+/* ====================== UTILITIES ========================== */
+/* =========================================================== */
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+
+function pad(n,w=2){return String(n).padStart(w,'0')}
+function tsNow(){
+  const d = new Date();
+  return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}.${pad(Math.floor(d.getUTCMilliseconds()/10),2)}`;
+}
+
+/* =========================================================== */
+/* ====================== NAV ================================ */
+/* =========================================================== */
+$$('#nav button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    $$('#nav button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const id = btn.dataset.section;
+    $$('.section').forEach(s=>s.classList.remove('active'));
+    $('#s-'+id).classList.add('active');
+  });
+});
+
+/* =========================================================== */
+/* ===================== TOPBAR CLOCK ======================== */
+/* =========================================================== */
+function tickClock(){
+  const d = new Date();
+  $('#clock').textContent = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} UTC`;
+}
+setInterval(tickClock, 1000);
+let blockNum = 21847392;
+setInterval(()=>{ blockNum += 1; $('#block').textContent = blockNum.toLocaleString(); }, 12000);
+
+/* =========================================================== */
+/* ====================== ACTIVITY LOG ======================= */
+/* =========================================================== */
+const logEl = $('#activity-log');
+const MAX_LINES = 22;
+let actCount = 2184;
+function pushActivityLine(){
+  const t = ACTIVITY_TEMPLATES[Math.floor(Math.random()*ACTIVITY_TEMPLATES.length)];
+  const ag = AGENTS[t.a];
+  const line = document.createElement('div');
+  line.className = 'log-line fade';
+  line.innerHTML = `<span class="ts">${tsNow()}</span><span class="agent ${ag.cls}">${ag.tag}</span><span class="msg">${t.m}</span>`;
+  logEl.appendChild(line);
+  // fade old
+  while (logEl.children.length > MAX_LINES) logEl.removeChild(logEl.firstChild);
+  // gradient fade for top items
+  [...logEl.children].forEach((el,i,arr)=>{
+    const ratio = i/(arr.length-1 || 1);
+    el.style.opacity = (0.35 + ratio*0.65).toFixed(2);
+  });
+  actCount++;
+  $('#act-count').textContent = actCount.toLocaleString();
+}
+// seed
+for(let i=0;i<14;i++) pushActivityLine();
+setInterval(pushActivityLine, 1300);
+
+/* =========================================================== */
+/* ====================== AXL FEED =========================== */
+/* =========================================================== */
+const axlEl = $('#axl-feed');
+const MAX_AXL = 6;
+function pushAxlMessage(){
+  const m = AXL_MSGS[Math.floor(Math.random()*AXL_MSGS.length)];
+  const card = document.createElement('div');
+  card.className = 'axl-msg flash';
+  card.innerHTML = `
+    <div class="head">
+      <span class="from">${AGENTS[m.from].short}</span>
+      <span class="arrow">▸</span>
+      <span class="to">${AGENTS[m.to].short}</span>
+      <span class="type type-${m.type}">${m.type}</span>
+    </div>
+    <div class="payload">${m.payload}</div>
+    <div class="ts">${tsNow()} · CHAN-AXL · 3.2 KB · sig OK</div>
+  `;
+  axlEl.appendChild(card);
+  while(axlEl.children.length > MAX_AXL) axlEl.removeChild(axlEl.firstChild);
+  [...axlEl.children].forEach((el,i,arr)=>{
+    const ratio = i/(arr.length-1 || 1);
+    el.style.opacity = (0.4 + ratio*0.6).toFixed(2);
+  });
+}
+for(let i=0;i<5;i++) pushAxlMessage();
+setInterval(pushAxlMessage, 2200);
+
+/* =========================================================== */
+/* ====================== TREASURY =========================== */
+/* =========================================================== */
+let bal = 50.437;
+let sparkData = [];
+for(let i=0;i<48;i++) sparkData.push(48 + Math.sin(i/3)*0.7 + Math.random()*0.6 + i*0.04);
+
+function drawSpark(){
+  const W=200, H=60, P=3;
+  const min = Math.min(...sparkData), max = Math.max(...sparkData);
+  const range = max-min || 1;
+  const pts = sparkData.map((v,i)=>{
+    const x = P + (W-P*2) * (i/(sparkData.length-1));
+    const y = H-P - (H-P*2) * ((v-min)/range);
+    return [x,y];
+  });
+  const line = pts.map((p,i)=> (i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  const fill = `M${pts[0][0].toFixed(1)} ${H} ` + pts.map(p=>'L'+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ') + ` L${pts[pts.length-1][0].toFixed(1)} ${H} Z`;
+  $('#spark-line').setAttribute('d', line);
+  $('#spark-fill').setAttribute('d', fill);
+  const last = pts[pts.length-1];
+  $('#spark-dot').setAttribute('cx', last[0]);
+  $('#spark-dot').setAttribute('cy', last[1]);
+}
+drawSpark();
+
+function tickTreasury(){
+  const d = (Math.random()-0.45)*0.05;
+  bal = Math.max(45, bal + d);
+  sparkData.shift(); sparkData.push(bal);
+  drawSpark();
+  $('#bal-eth').textContent = bal.toFixed(3) + ' ETH';
+  $('#bal-usd').textContent = '$' + (bal*3252.49).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+  $('#bal-delta').textContent = (bal>50.437?'+':'') + (bal-48.25).toFixed(3);
+}
+setInterval(tickTreasury, 1500);
+
+/* keeper */
+let kDone = 348, kTotal = 412;
+setInterval(()=>{
+  if (Math.random()<0.4) {
+    if (kDone < kTotal) kDone++;
+    else { kTotal += 1 + Math.floor(Math.random()*2); }
+    $('#keeper-done').textContent = kDone;
+    $('#keeper-total').textContent = kTotal;
+    document.getElementById('keeper-bar').style.width = ((kDone/kTotal)*100).toFixed(1)+'%';
+  }
+}, 1800);
+
+/* uptime tick */
+let uptimeBase = Date.now() - (14*86400 + 6*3600 + 42*60 + 18)*1000;
+function tickUptime(){
+  const sec = Math.floor((Date.now()-uptimeBase)/1000);
+  const d = Math.floor(sec/86400);
+  const h = Math.floor((sec%86400)/3600);
+  const m = Math.floor((sec%3600)/60);
+  const s = sec%60;
+  $('#uptime').textContent = `${d}d ${pad(h)}h ${pad(m)}m ${pad(s)}s`;
+}
+tickUptime(); setInterval(tickUptime, 1000);
+
+/* =========================================================== */
+/* ===================== PORTFOLIO =========================== */
+/* =========================================================== */
+const grid = $('#inft-grid');
+function renderINFTs(){
+  grid.innerHTML = STRATEGIES.map(s=>{
+    const scoreCls = s.score>=85?'':(s.score>=70?'warn':'red');
+    const bars = s.trend.map(v=>`<i class="${v>5?'on':''}" style="height:${(v/8)*22+2}px"></i>`).join('');
+    const truncHash = s.hash.slice(0,8)+'…'+s.hash.slice(-6);
+    return `
+    <article class="inft">
+      <div class="top">
+        <div class="agent-tag">${s.type}</div>
+        <div class="badge">${s.v}</div>
+      </div>
+      <div class="title">${s.name}</div>
+      <div class="meta">
+        <div class="row"><span>MINTED</span><span class="v">${s.date}</span></div>
+        <div class="row"><span>ROOT_HASH</span>
+          <span class="hash">${truncHash}<button class="copy" data-h="${s.hash}">COPY</button></span>
+        </div>
+        <div class="row"><span>iNFT ID</span><span class="v">#${(Math.floor(Math.random()*9999)+1000)}</span></div>
+      </div>
+      <div class="perf">
+        <div>
+          <div class="l">SCORE</div>
+          <div class="score ${scoreCls}">${s.score}</div>
+        </div>
+        <div class="bars">${bars}</div>
+      </div>
+      <a class="explorer" href="#">VIEW ON 0G EXPLORER <span class="ar">↗</span></a>
+    </article>`;
+  }).join('');
+  // copy handlers
+  $$('.inft .copy').forEach(b=>{
+    b.addEventListener('click', e=>{
+      e.preventDefault(); e.stopPropagation();
+      navigator.clipboard?.writeText(b.dataset.h);
+      const t = b.textContent; b.textContent='COPIED'; b.style.color='var(--green)';
+      setTimeout(()=>{ b.textContent=t; b.style.color=''; }, 1200);
+    });
+  });
+}
+renderINFTs();
+
+/* =========================================================== */
+/* =================== TREASURY UNIT TOGGLE ================== */
+/* =========================================================== */
+$$('.amount .unit button').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    b.parentElement.querySelectorAll('button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+  });
+});
+
+/* portfolio chips */
+$$('.port-toolbar .chip').forEach(c=>{
+  c.addEventListener('click', ()=>{
+    // simple toggle within row groups
+    const sib = c.parentElement.querySelectorAll('.chip');
+    // detect group: filter chips are the first 4, sort the last 2
+    const idx = [...sib].indexOf(c);
+    const isFilter = idx < 4;
+    sib.forEach((x,i)=>{
+      if(isFilter && i<4) x.classList.remove('on');
+      if(!isFilter && i>=4) x.classList.remove('on');
+    });
+    c.classList.add('on');
+  });
+});
+
+</script>
+</body>
+</html>
