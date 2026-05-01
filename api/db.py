@@ -250,3 +250,26 @@ def get_summary_stats() -> dict:
     }
     conn.close()
     return stats
+
+
+# ─── Cycles ───────────────────────────────────────────────────────────────────
+
+def get_cycles(limit: int = 20) -> list:
+    """
+    Get most recent scheduler cycle records.
+
+    Args:
+        limit: Max number of cycles to return (default 20).
+
+    Returns:
+        List of cycle dicts ordered newest first.
+    """
+    conn = _get_conn()
+    if not conn:
+        return []
+    rows = conn.execute(
+        "SELECT * FROM cycles ORDER BY started_at DESC LIMIT ?",
+        (limit,)
+    ).fetchall()
+    conn.close()
+    return _rows_to_list(rows)
