@@ -27,6 +27,8 @@ services:
       dockerfile: docker/Dockerfile.originator
     env_file:
       - ../.env
+    expose:
+      - "8001"
     environment:
       - BRIDGE_URL=http://bridge:3100
       - AXL_API_PORT=9002
@@ -49,6 +51,8 @@ services:
       dockerfile: docker/Dockerfile.specialist
     env_file:
       - ../.env
+    expose:
+      - "8002"
     environment:
       - BRIDGE_URL=http://bridge:3100
       - AXL_API_PORT=9002
@@ -70,6 +74,8 @@ services:
       dockerfile: docker/Dockerfile.execution
     env_file:
       - ../.env
+    expose:
+      - "8003"
     environment:
       - BRIDGE_URL=http://bridge:3100
       - AXL_API_PORT=9002
@@ -109,6 +115,28 @@ services:
         condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  scheduler:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.scheduler
+    env_file:
+      - ../.env
+    environment:
+      - STATE_DIR=/app/state
+      - CYCLE_INTERVAL_MINUTES=${CYCLE_INTERVAL_MINUTES:-10}
+      - AGENT_TIMEOUT_MINUTES=${AGENT_TIMEOUT_MINUTES:-15}
+      - ORIGINATOR_URL=http://originator:8001
+      - SPECIALIST_URL=http://specialist:8002
+      - EXECUTION_URL=http://execution:8003
+    volumes:
+      - state-data:/app/state
+    networks:
+      - miligents-net
+    depends_on:
+      - originator
+      - specialist
+      - execution
 
 networks:
   miligents-net:
