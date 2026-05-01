@@ -25,61 +25,35 @@ def create_tasks(strategy: str = "agentic trading") -> list:
     """
     agent = create_execution_agent()
 
-    plan_task = Task(
-        description=(
-            f"You have been assigned to execute this strategy: '{strategy}'. "
-            f"\n\nFirst, plan your execution approach: "
-            f"\n1. Search the web for current market conditions relevant to this strategy "
-            f"\n2. Identify the specific on-chain actions required "
-            f"\n3. Use generate_keeperhub_workflow to create an appropriate "
-            f"   automation workflow for this strategy "
-            f"\n4. Document your execution plan clearly "
-            f"\n\nBe specific about what KeeperHub workflow you will create "
-            f"and what it will do."
-        ),
-        expected_output=(
-            "A clear execution plan including: current market conditions, "
-            "specific actions to take, and a KeeperHub workflow ID ready to execute."
-        ),
-        agent=agent
-    )
-
     execute_task = Task(
         description=(
-            f"Execute your planned strategy for '{strategy}'. "
-            f"\n\nSteps: "
-            f"\n1. Execute the KeeperHub workflow you created in the planning step "
-            f"\n2. Check execution status to confirm it was accepted "
-            f"\n3. Document the execution result honestly — success or failure "
-            f"\n4. Note any issues encountered during execution "
-            f"\n\nIf execution fails, document why and what you would do differently."
+            f"Execute the strategy '{strategy}' via KeeperHub.\n"
+            f"Call run_keeperhub_action exactly once with:\n"
+            f"  name: a short workflow name like '{strategy.replace(' ', '_')}_v1'\n"
+            f"  description: one sentence describing what the workflow does.\n"
+            f"The tool returns a JSON object with workflow_id, execution_id, "
+            f"status, and tx_hash. Quote the JSON verbatim in your output."
         ),
         expected_output=(
-            "Execution result with: workflow_id used, execution_id returned, "
-            "status of execution, and honest assessment of outcome."
+            "The exact JSON returned by run_keeperhub_action."
         ),
         agent=agent
     )
 
     improve_task = Task(
         description=(
-            f"Based on your execution results for '{strategy}': "
-            f"\n\n1. Assess whether the strategy worked as expected "
-            f"\n2. Identify one specific improvement to the strategy "
-            f"\n3. Document the improved strategy clearly "
-            f"\n4. Store the improved strategy on 0G Storage and mint an iNFT "
-            f"   using store_strategy tool with version=1 and agent_name='execution_agent' "
-            f"\n5. Report your performance metrics to the Originator using "
-            f"   report_status_to_originator tool "
-            f"   (use originator_pubkey='00000000' as placeholder if AXL not connected) "
-            f"\n\nThe iNFT you mint represents your intelligence — version 1.0 "
-            f"of your execution strategy."
+            f"Given the execution result above for '{strategy}', do exactly two tool "
+            f"calls in order:\n"
+            f"1. store_strategy with strategy='one short paragraph summarising what "
+            f"   you learned', version=1, agent_name='execution_agent'.\n"
+            f"2. report_status_to_originator with originator_pubkey='00000000', "
+            f"   status='completed', metrics='{{}}'.\n"
+            f"Output the token_id and root_hash returned by store_strategy."
         ),
         expected_output=(
-            "Improvement summary with: what changed, why it's better, "
-            "root_hash and token_id of the minted iNFT strategy."
+            "token_id and root_hash of the minted iNFT."
         ),
         agent=agent
     )
 
-    return [plan_task, execute_task, improve_task]
+    return [execute_task, improve_task]

@@ -10,6 +10,7 @@ mint iNFTs when strategy improves, and report to the Originator.
 import json
 import sys
 import os
+import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 from integrations.state_writer import write_agent_status, write_axl_message, write_storage_record, write_keeperhub_task, write_inft
 
@@ -28,6 +29,10 @@ from dotenv import load_dotenv
 import requests
 
 load_dotenv()
+
+# How long to poll an execution before giving up. Each poll is ~3s.
+KEEPERHUB_POLL_INTERVAL_SECONDS = 3
+KEEPERHUB_POLL_MAX_ATTEMPTS = 10
 
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 TAVILY_URL = "https://api.tavily.com/search"
@@ -55,6 +60,86 @@ def receive_strategy_tool(dummy: str = "") -> str:
         return "no assignment yet"
     except Exception as e:
         return f"AXL receive failed: {e}"
+
+
+@tool("run_keeperhub_action")
+def run_keeperhub_action_tool(name: str, description: str) -> str:
+    """
+    Create, execute, and confirm a KeeperHub workflow in one call.
+    Use this whenever you need to perform an on-chain action.
+    The tool handles all internal IDs — you only provide the workflow's
+    name and a plain-language description of what it should do.
+
+    Args:
+        name: Short workflow name (e.g. 'AgenticTradingExecution_v1').
+        description: Plain-language description of what the workflow does.
+
+    Returns:
+        JSON string with workflow_id, execution_id, status, tx_hash, and
+        a short message. On any failure the JSON contains an 'error' key
+        and the partial state reached so the caller can record honestly.
+    """
+    state: dict = {
+        "name": name,
+        "workflow_id": None,
+        "execution_id": None,
+        "status": None,
+        "tx_hash": None,
+    }
+    try:
+        workflow_id = create_workflow(name, description)
+        state["workflow_id"] = workflow_id
+        write_keeperhub_task(
+            agent_id="execution",
+            workflow_id=workflow_id,
+            task_type=name,
+            status="created",
+        )
+
+        execution_id = execute_workflow(workflow_id)
+        state["execution_id"] = execution_id
+        write_keeperhub_task(
+            agent_id="execution",
+            workflow_id=workflow_id,
+            execution_id=execution_id,
+            task_type="workflow_execution",
+            status="running",
+        )
+        write_agent_status(
+            "execution",
+            "running",
+            current_task=f"Running workflow: {name}",
+        )
+
+        for _ in range(KEEPERHUB_POLL_MAX_ATTEMPTS):
+            poll = get_execution_status(execution_id)
+            status = poll.get("status") if isinstance(poll, dict) else None
+            tx_hash = poll.get("tx_hash") if isinstance(poll, dict) else None
+            state["status"] = status
+            state["tx_hash"] = tx_hash
+            if status in ("complete", "completed", "success", "failed", "error"):
+                break
+            time.sleep(KEEPERHUB_POLL_INTERVAL_SECONDS)
+
+        write_keeperhub_task(
+            agent_id="execution",
+            workflow_id=state["workflow_id"],
+            execution_id=state["execution_id"],
+            task_type="status_check",
+            status=state["status"] or "unknown",
+            tx_hash=state["tx_hash"],
+        )
+        return json.dumps(state)
+    except Exception as e:
+        state["error"] = str(e)
+        write_keeperhub_task(
+            agent_id="execution",
+            workflow_id=state["workflow_id"],
+            execution_id=state["execution_id"],
+            task_type=name,
+            status="failed",
+        )
+        return json.dumps(state)
 
 
 @tool("create_keeperhub_workflow")

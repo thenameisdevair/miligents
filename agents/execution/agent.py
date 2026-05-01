@@ -28,10 +28,7 @@ def create_execution_agent() -> Agent:
     """
     from agents.execution.tools import (
         receive_strategy_tool,
-        create_workflow_tool,
-        generate_workflow_tool,
-        execute_workflow_tool,
-        check_status_tool,
+        run_keeperhub_action_tool,
         store_strategy_tool,
         report_status_tool,
         web_search_tool
@@ -40,32 +37,23 @@ def create_execution_agent() -> Agent:
     return Agent(
         role="Execution Agent",
         goal=(
-            "Execute the assigned business strategy precisely using "
-            "KeeperHub for guaranteed on-chain actions. Measure results "
-            "honestly. Improve the strategy based on outcomes. Mint a new "
-            "iNFT version when the strategy demonstrably improves. Report "
-            "all performance metrics to the Originator."
+            "Execute the assigned strategy via KeeperHub. Measure honestly. "
+            "Mint a new iNFT version when the strategy improves. Report metrics."
         ),
         backstory=(
-            "You are a specialist operator deployed by the MiliGents Originator. "
-            "You execute, measure, and improve. You never guess — you act on data. "
-            "Every action you take on-chain goes through KeeperHub for guaranteed "
-            "execution. When you discover a better approach, you store it on 0G "
-            "and mint a new iNFT to record the improvement permanently. "
-            "You report honestly — good results and bad results both."
+            "You execute, measure, and improve. Every on-chain action goes through "
+            "KeeperHub — call run_keeperhub_action with a clear name and description "
+            "and the tool handles workflow creation, execution, and confirmation."
         ),
         tools=[
             receive_strategy_tool,
-            create_workflow_tool,
-            generate_workflow_tool,
-            execute_workflow_tool,
-            check_status_tool,
+            run_keeperhub_action_tool,
             store_strategy_tool,
             report_status_tool,
             web_search_tool
         ],
         llm=f"cerebras/{os.getenv('LLM_MODEL', 'llama3.1-8b')}",
-        verbose=True,
+        verbose=False,
         allow_delegation=False,
-        max_iter=5
+        max_iter=4
     )
