@@ -5,3 +5,5 @@ chromadb
 python-dotenv
 tavily-python
 requests
+fastapi
+uvicorn[standard]
