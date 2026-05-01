@@ -30,6 +30,9 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
 
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -65,6 +68,13 @@ KEEPERHUB_MCP_URL = os.getenv("KEEPERHUB_MCP_URL", "http://localhost:3001")
 @app.get("/api/health")
 def health():
     return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/")
+def frontend():
+    """Serve the MiliGents frontend."""
+    html_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "MiliGents v2.html")
+    return FileResponse(os.path.abspath(html_path))
 
 
 # ─── Agents ───────────────────────────────────────────────────────────────────
