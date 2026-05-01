@@ -88,6 +88,17 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             usd_value     TEXT,
             timestamp     TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS cycles (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            cycle_id           TEXT UNIQUE NOT NULL,
+            started_at         TEXT NOT NULL,
+            completed_at       TEXT,
+            status             TEXT NOT NULL DEFAULT 'running',
+            originator_status  TEXT,
+            specialist_status  TEXT,
+            execution_status   TEXT
+        );
     """)
     conn.commit()
 
@@ -308,3 +319,62 @@ def write_treasury_snapshot(
         conn.close()
     except Exception as e:
         print(f"[StateWriter] write_treasury_snapshot failed: {e}")
+
+
+# ─── Scheduler Cycles ─────────────────────────────────────────────────────────
+
+def write_cycle_start(cycle_id: str) -> None:
+    """
+    Record the start of a new scheduler cycle.
+    Args:
+        cycle_id: Unique identifier e.g. 'cycle_20260501_143000'.
+    """
+    try:
+        conn = _get_conn()
+        conn.execute(
+            """INSERT OR IGNORE INTO cycles (cycle_id, started_at, status)
+               VALUES (?, ?, 'running')""",
+            (cycle_id, _now())
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[StateWriter] write_cycle_start failed: {e}")
+
+
+def write_cycle_complete(
+    cycle_id: str,
+    status: str = "complete",
+    originator_status: str = None,
+    specialist_status: str = None,
+    execution_status: str = None,
+) -> None:
+    """
+    Update a cycle record when it finishes.
+    Args:
+        cycle_id: The cycle to update.
+        status: 'complete' | 'error'
+        originator_status: Final status of originator agent.
+        specialist_status: Final status of specialist agent.
+        execution_status: Final status of execution agent.
+    """
+    try:
+        conn = _get_conn()
+        conn.execute(
+            """UPDATE cycles
+               SET completed_at = ?,
+                   status = ?,
+                   originator_status = ?,
+                   specialist_status = ?,
+                   execution_status = ?
+               WHERE cycle_id = ?""",
+            (
+                _now(), status,
+                originator_status, specialist_status, execution_status,
+                cycle_id,
+            )
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[StateWriter] write_cycle_complete failed: {e}")
