@@ -80,7 +80,7 @@ services:
       - BRIDGE_URL=http://bridge:3100
       - AXL_API_PORT=9002
       - EXECUTION_STRATEGY=${EXECUTION_STRATEGY:-agentic trading}
-      - KEEPERHUB_MCP_URL=${KEEPERHUB_MCP_URL:-http://host.docker.internal:3001}
+      - KEEPERHUB_MCP_URL=http://keeperhub:3000
     volumes:
       - ../axl/configs/node-config-execution.json:/app/axl/configs/node-config-execution.json
       - ../axl/configs/private-c.pem:/app/axl/configs/private-c.pem
@@ -137,6 +137,21 @@ services:
       - originator
       - specialist
       - execution
+
+  keeperhub:
+    build:
+      context: ../keeperhub
+      dockerfile: Dockerfile
+    environment:
+      - PORT=3000
+      - MCP_API_KEY=${KEEPERHUB_MCP_API_KEY:-miligents_local}
+      - KEEPERHUB_API_KEY=${KEEPERHUB_API_KEY}
+      - KEEPERHUB_API_URL=${KEEPERHUB_API_URL:-https://app.keeperhub.com}
+    expose:
+      - "3000"
+    networks:
+      - miligents-net
+    restart: unless-stopped
 
 networks:
   miligents-net:
