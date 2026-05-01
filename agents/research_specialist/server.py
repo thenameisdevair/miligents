@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from agents.research_specialist.main import run
-from integrations.state_writer import write_agent_status
+from integrations.state_writer import write_agent_status, write_activity
 
 load_dotenv()
 
@@ -57,11 +57,14 @@ def trigger_run():
 
     def _run():
         global _is_running
+        write_activity("specialist", "status", "started")
         try:
             run()
+            write_activity("specialist", "status", "finished")
         except Exception as e:
             print(f"[Specialist Server] run() failed: {e}")
             write_agent_status("specialist", "error", result=str(e))
+            write_activity("specialist", "error", f"run() raised: {str(e)[:120]}")
         finally:
             _is_running = False
 

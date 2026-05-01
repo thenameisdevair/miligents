@@ -17,6 +17,8 @@ from integrations.state_writer import write_agent_status, write_axl_message, wri
 from crewai.tools import tool
 from integrations.bridge_client import upload_data, mint_inft
 from integrations.chroma_memory import store, search
+from integrations.activity import emit
+from integrations.state_writer import write_activity
 from integrations.keeperhub import (
     create_workflow,
     execute_workflow,
@@ -30,6 +32,8 @@ import requests
 
 load_dotenv()
 
+AGENT = "execution"
+
 # How long to poll an execution before giving up. Each poll is ~3s.
 KEEPERHUB_POLL_INTERVAL_SECONDS = 3
 KEEPERHUB_POLL_MAX_ATTEMPTS = 10
@@ -39,6 +43,7 @@ TAVILY_URL = "https://api.tavily.com/search"
 
 
 @tool("receive_strategy")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: "checking AXL inbox for strategy")
 def receive_strategy_tool(dummy: str = "") -> str:
     """
     Check AXL inbox for strategy assignment from the Originator.
@@ -63,6 +68,7 @@ def receive_strategy_tool(dummy: str = "") -> str:
 
 
 @tool("run_keeperhub_action")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: f"keeperhub: {(a[0] if a else k.get('name', '?'))[:60]}")
 def run_keeperhub_action_tool(name: str, description: str) -> str:
     """
     Create, execute, and confirm a KeeperHub workflow in one call.
@@ -240,6 +246,7 @@ def check_status_tool(execution_id: str) -> str:
 
 
 @tool("store_strategy")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: f"storing strategy v{(a[1] if len(a) > 1 else k.get('version', '?'))} on 0G + minting iNFT")
 def store_strategy_tool(strategy: str, version: int, agent_name: str) -> str:
     """
     Store an improved strategy on 0G Storage and mint an iNFT.
@@ -297,6 +304,7 @@ def store_strategy_tool(strategy: str, version: int, agent_name: str) -> str:
 
 
 @tool("report_status_to_originator")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: f"reporting STATUS '{(a[1] if len(a) > 1 else k.get('status', '?'))}' to originator")
 def report_status_tool(
     originator_pubkey: str,
     status: str,
@@ -336,6 +344,7 @@ def report_status_tool(
 
 
 @tool("web_search")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: f"searching: {(a[0] if a else k.get('query', '?'))[:80]}")
 def web_search_tool(query: str) -> str:
     """
     Search the web for current market data and strategy insights.

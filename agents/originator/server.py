@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from agents.originator.main import run
-from integrations.state_writer import write_agent_status
+from integrations.state_writer import write_agent_status, write_activity
 
 load_dotenv()
 
@@ -57,11 +57,14 @@ def trigger_run():
 
     def _run():
         global _is_running
+        write_activity("originator", "status", "started")
         try:
             run()
+            write_activity("originator", "status", "finished")
         except Exception as e:
             print(f"[Originator Server] run() failed: {e}")
             write_agent_status("originator", "error", result=str(e))
+            write_activity("originator", "error", f"run() raised: {str(e)[:120]}")
         finally:
             _is_running = False
 

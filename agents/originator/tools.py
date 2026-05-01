@@ -14,6 +14,7 @@ from integrations.state_writer import write_agent_status, write_axl_message, wri
 from crewai.tools import tool
 from integrations.bridge_client import upload_data, download_data
 from integrations.chroma_memory import store, search
+from integrations.activity import emit
 from axl.client import send_message, receive_messages, get_our_pubkey, build_message
 from dotenv import load_dotenv
 import requests
@@ -21,11 +22,14 @@ import os
 
 load_dotenv()
 
+AGENT = "originator"
+
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 TAVILY_URL = "https://api.tavily.com/search"
 
 
 @tool("web_search")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: f"searching: {(a[0] if a else k.get('query', '?'))[:80]}")
 def web_search_tool(query: str) -> str:
     """
     Search the web for current information.
@@ -60,6 +64,7 @@ def web_search_tool(query: str) -> str:
 
 
 @tool("store_research")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: f"storing on 0G: {(a[1] if len(a) > 1 else k.get('filename', '?'))[:60]}")
 def store_research_tool(data: str, filename: str) -> str:
     """
     Store research findings permanently on 0G Storage
@@ -92,6 +97,7 @@ def store_research_tool(data: str, filename: str) -> str:
 
 
 @tool("search_memory")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: f"searching memory: {(a[0] if a else k.get('query', '?'))[:80]}")
 def search_memory_tool(query: str) -> str:
     """
     Search past research stored in local memory.
@@ -113,6 +119,7 @@ def search_memory_tool(query: str) -> str:
 
 
 @tool("send_axl_message")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: f"AXL send: {(a[1] if len(a) > 1 else k.get('message_type', '?'))}")
 def send_axl_tool(destination_pubkey: str, message_type: str, payload: str) -> str:
     """
     Send a message to another agent over the AXL P2P network.
@@ -142,6 +149,7 @@ def send_axl_tool(destination_pubkey: str, message_type: str, payload: str) -> s
 
 
 @tool("receive_axl_messages")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: "checking AXL inbox")
 def receive_axl_tool(dummy: str = "") -> str:
     """
     Check for incoming messages from other agents over AXL.

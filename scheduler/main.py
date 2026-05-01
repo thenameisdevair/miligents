@@ -33,7 +33,13 @@ import requests
 
 sys.path.insert(0, "/app")
 
-from integrations.state_writer import write_cycle_start, write_cycle_complete
+from integrations.state_writer import (
+    write_cycle_start,
+    write_cycle_complete,
+    write_activity,
+    set_current_cycle,
+    clear_current_cycle,
+)
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -105,10 +111,20 @@ def run_cycle():
     cycle_id = f"cycle_{now_id()}"
     log(f"Starting cycle {cycle_id}")
     write_cycle_start(cycle_id)
+    set_current_cycle(cycle_id)
+    write_activity("scheduler", "cycle", f"started {cycle_id}", cycle_id=cycle_id)
 
+    write_activity("scheduler", "task", "triggering originator", cycle_id=cycle_id)
     o_status = wait_for_agent("originator", ORIGINATOR_URL, AGENT_TIMEOUT_MINUTES)
+    write_activity("scheduler", "status", f"originator → {o_status}", cycle_id=cycle_id)
+
+    write_activity("scheduler", "task", "triggering specialist", cycle_id=cycle_id)
     s_status = wait_for_agent("specialist", SPECIALIST_URL, AGENT_TIMEOUT_MINUTES)
+    write_activity("scheduler", "status", f"specialist → {s_status}", cycle_id=cycle_id)
+
+    write_activity("scheduler", "task", "triggering execution", cycle_id=cycle_id)
     e_status = wait_for_agent("execution",  EXECUTION_URL,  AGENT_TIMEOUT_MINUTES)
+    write_activity("scheduler", "status", f"execution → {e_status}", cycle_id=cycle_id)
 
     final = "complete" if all(
         s in ("complete", "timeout") for s in [o_status, s_status, e_status]
@@ -121,6 +137,8 @@ def run_cycle():
         specialist_status=s_status,
         execution_status=e_status,
     )
+    write_activity("scheduler", "cycle", f"finished {cycle_id} ({final})", cycle_id=cycle_id)
+    clear_current_cycle()
     log(f"Cycle {cycle_id} done — status: {final}")
 
 

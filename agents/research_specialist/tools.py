@@ -15,17 +15,21 @@ from integrations.state_writer import write_agent_status, write_axl_message, wri
 from crewai.tools import tool
 from integrations.bridge_client import upload_data
 from integrations.chroma_memory import store, search
+from integrations.activity import emit
 from axl.client import send_message, receive_messages, build_message
 from dotenv import load_dotenv
 import requests
 
 load_dotenv()
 
+AGENT = "specialist"
+
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 TAVILY_URL = "https://api.tavily.com/search"
 
 
 @tool("web_search")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: f"searching: {(a[0] if a else k.get('query', '?'))[:80]}")
 def web_search_tool(query: str) -> str:
     """
     Search the web for deep domain-specific information.
@@ -64,6 +68,7 @@ def web_search_tool(query: str) -> str:
 
 
 @tool("store_report")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: f"storing on 0G: {(a[1] if len(a) > 1 else k.get('filename', '?'))[:60]}")
 def store_report_tool(data: str, filename: str) -> str:
     """
     Store research report permanently on 0G Storage
@@ -93,6 +98,7 @@ def store_report_tool(data: str, filename: str) -> str:
 
 
 @tool("search_memory")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: f"searching memory: {(a[0] if a else k.get('query', '?'))[:80]}")
 def search_memory_tool(query: str) -> str:
     """
     Search past research stored in local specialist memory.
@@ -113,6 +119,7 @@ def search_memory_tool(query: str) -> str:
 
 
 @tool("receive_assignment")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: "checking AXL inbox")
 def receive_assignment_tool(dummy: str = "") -> str:
     """
     Check AXL inbox for assignment messages from the Originator.
@@ -137,6 +144,7 @@ def receive_assignment_tool(dummy: str = "") -> str:
 
 
 @tool("send_report_to_originator")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: "sending REPORT to originator via AXL")
 def send_report_tool(
     originator_pubkey: str,
     report_summary: str,
