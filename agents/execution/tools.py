@@ -198,6 +198,8 @@ def store_strategy_tool(strategy: str, version: int, agent_name: str) -> str:
             version=version
         )
         write_agent_status("execution", "running", current_task=f"Minted iNFT v{version}: token {token_id}")
+        from integrations.state_writer import write_treasury_snapshot
+        write_treasury_snapshot(eth_balance="0.05", usd_value="$162.50")
 
         return json.dumps({
             "root_hash": root_hash,
