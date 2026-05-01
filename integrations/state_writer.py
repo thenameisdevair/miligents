@@ -99,6 +99,20 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             specialist_status  TEXT,
             execution_status   TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS activity (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id    TEXT NOT NULL,
+            kind        TEXT NOT NULL,
+            summary     TEXT NOT NULL,
+            details     TEXT,
+            cycle_id    TEXT,
+            timestamp   TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS activity_agent_ts
+            ON activity(agent_id, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS activity_ts
+            ON activity(timestamp DESC);
     """)
     conn.commit()
 
@@ -319,6 +333,85 @@ def write_treasury_snapshot(
         conn.close()
     except Exception as e:
         print(f"[StateWriter] write_treasury_snapshot failed: {e}")
+
+
+# ─── Activity (live feed) ─────────────────────────────────────────────────────
+
+CURRENT_CYCLE_FILE = os.path.join(STATE_DIR, "current_cycle.txt")
+
+
+def set_current_cycle(cycle_id: str) -> None:
+    """Record the active cycle_id so write_activity() can attach it."""
+    try:
+        Path(STATE_DIR).mkdir(parents=True, exist_ok=True)
+        with open(CURRENT_CYCLE_FILE, "w") as f:
+            f.write(cycle_id)
+    except Exception as e:
+        print(f"[StateWriter] set_current_cycle failed: {e}")
+
+
+def clear_current_cycle() -> None:
+    """Remove the active-cycle marker. Called when a cycle finishes."""
+    try:
+        if os.path.exists(CURRENT_CYCLE_FILE):
+            os.remove(CURRENT_CYCLE_FILE)
+    except Exception as e:
+        print(f"[StateWriter] clear_current_cycle failed: {e}")
+
+
+def _read_current_cycle() -> str | None:
+    try:
+        if os.path.exists(CURRENT_CYCLE_FILE):
+            with open(CURRENT_CYCLE_FILE) as f:
+                v = f.read().strip()
+                return v or None
+    except Exception:
+        pass
+    return None
+
+
+def write_activity(
+    agent_id: str,
+    kind: str,
+    summary: str,
+    details: dict | None = None,
+    cycle_id: str | None = None,
+) -> None:
+    """
+    Append one event to the live activity feed.
+
+    Args:
+        agent_id: 'originator' | 'specialist' | 'execution' | 'scheduler'.
+        kind: One of cycle, task, tool_call, tool_result, axl_send, axl_recv,
+              storage, inft_mint, error, status.
+        summary: Short human-readable string. Truncated to 140 chars.
+        details: Optional dict serialised to JSON for the details column.
+        cycle_id: Optional cycle id; falls back to STATE_DIR/current_cycle.txt
+                  if not provided.
+
+    This function is fail-silent — activity logging must never break a cycle.
+    """
+    try:
+        if cycle_id is None:
+            cycle_id = _read_current_cycle()
+        conn = _get_conn()
+        conn.execute(
+            """INSERT INTO activity
+               (agent_id, kind, summary, details, cycle_id, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                agent_id,
+                kind,
+                (summary or "")[:140],
+                json.dumps(details) if details else None,
+                cycle_id,
+                _now(),
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[StateWriter] write_activity failed: {e}")
 
 
 # ─── Scheduler Cycles ─────────────────────────────────────────────────────────
