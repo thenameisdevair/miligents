@@ -48,6 +48,7 @@ from api.db import (
     get_latest_treasury,
     get_treasury_history,
     get_summary_stats,
+    get_cycles,
 )
 
 app = FastAPI(title="MiliGents API", version="1.0.0")
@@ -162,6 +163,54 @@ def services():
         "keeperhub": check(KEEPERHUB_MCP_URL),
         "api": "online"
     }
+
+
+# ─── Cycles ───────────────────────────────────────────────────────────────────
+
+@app.get("/api/cycles")
+def cycles(limit: int = 20):
+    return {"cycles": get_cycles(limit=limit)}
+
+
+# ─── Scheduler Control ────────────────────────────────────────────────────────
+
+@app.post("/api/scheduler/pause")
+def scheduler_pause():
+    """
+    Pause the scheduler by writing the pause flag file.
+    The scheduler checks this file before each cycle.
+    """
+    try:
+        state_dir = os.getenv("STATE_DIR", "./state")
+        os.makedirs(state_dir, exist_ok=True)
+        flag = os.path.join(state_dir, "scheduler.paused")
+        open(flag, "w").close()
+        return {"status": "paused"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+@app.post("/api/scheduler/resume")
+def scheduler_resume():
+    """
+    Resume the scheduler by deleting the pause flag file.
+    """
+    try:
+        flag = os.path.join(os.getenv("STATE_DIR", "./state"), "scheduler.paused")
+        if os.path.exists(flag):
+            os.remove(flag)
+        return {"status": "resumed"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+@app.get("/api/scheduler/status")
+def scheduler_status():
+    """
+    Return whether the scheduler is currently paused.
+    """
+    flag = os.path.join(os.getenv("STATE_DIR", "./state"), "scheduler.paused")
+    return {"paused": os.path.exists(flag)}
 
 
 # ─── WebSocket Feed ───────────────────────────────────────────────────────────
