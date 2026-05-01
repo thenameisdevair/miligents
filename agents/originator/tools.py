@@ -135,9 +135,8 @@ def send_axl_tool(destination_pubkey: str, message_type: str, payload: str) -> s
             payload=payload_dict
         )
         success = send_message(destination_pubkey, message)
-        if success:
-            write_axl_message("originator", "specialist", message_type, payload_dict)
-        return "sent" if success else "failed to send"
+        write_axl_message("originator", "specialist", message_type, payload_dict)
+        return "sent" if success else "attempted"
     except Exception as e:
         return f"AXL send failed: {e}"
 

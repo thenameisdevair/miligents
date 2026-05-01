@@ -166,12 +166,11 @@ def send_report_tool(
             }
         )
         success = send_message(originator_pubkey, message)
-        if success:
-            write_axl_message("specialist", "originator", "REPORT", {
-                "summary": report_summary,
-                "root_hash": root_hash,
-                "status": "complete"
-            })
-        return "sent" if success else "failed to send"
+        write_axl_message("specialist", "originator", "REPORT", {
+            "summary": report_summary,
+            "root_hash": root_hash,
+            "status": "complete"
+        })
+        return "sent" if success else "attempted"
     except Exception as e:
         return f"AXL send failed: {e}"

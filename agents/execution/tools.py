@@ -239,12 +239,11 @@ def report_status_tool(
             }
         )
         success = send_message(originator_pubkey, message)
-        if success:
-            write_axl_message("execution", "originator", "STATUS", {
-                "status": status,
-                "metrics": metrics_dict
-            })
-        return "sent" if success else "failed to send"
+        write_axl_message("execution", "originator", "STATUS", {
+            "status": status,
+            "metrics": metrics_dict
+        })
+        return "sent" if success else "attempted"
     except Exception as e:
         return f"AXL send failed: {e}"
 
