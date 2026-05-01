@@ -1620,6 +1620,8 @@ function renderStats(stats) {
 
 function renderServices(services) {
   if (!services) return;
+
+  // Update sys-cards
   const map = { bridge: 0, keeperhub: 2 };
   const cards = document.querySelectorAll('.sys-card');
   Object.entries(map).forEach(([key, idx]) => {
@@ -1631,6 +1633,41 @@ function renderServices(services) {
     if (dot) dot.style.background = isOnline ? 'var(--mint-2)' : 'var(--coral-2)';
     if (st) st.textContent = isOnline ? 'Online' : 'Offline';
   });
+
+  // Update checklist to reflect real service status
+  const checks = document.querySelectorAll('.checks li');
+  if (!checks.length) return;
+
+  const bridgeOnline = services.bridge === 'online';
+  const keeperOnline = services.keeperhub === 'online';
+
+  // Bridge healthy — index 0
+  const b = checks[0];
+  if (b) {
+    const icon = b.querySelector('.check');
+    const lat = b.querySelector('.lat');
+    if (icon) {
+      icon.textContent = bridgeOnline ? '✓' : '✗';
+      icon.style.background = bridgeOnline ? 'var(--mint-soft)' : 'rgba(248,113,113,.15)';
+      icon.style.color = bridgeOnline ? 'var(--mint-2)' : 'var(--coral-2)';
+      icon.style.borderColor = bridgeOnline ? 'var(--mint-2)' : 'var(--coral-2)';
+    }
+    if (lat) lat.textContent = bridgeOnline ? 'port 3100 · online' : 'offline';
+  }
+
+  // KeeperHub authenticated — index 3
+  const k = checks[3];
+  if (k) {
+    const icon = k.querySelector('.check');
+    const lat = k.querySelector('.lat');
+    if (icon) {
+      icon.textContent = keeperOnline ? '✓' : '✗';
+      icon.style.background = keeperOnline ? 'var(--mint-soft)' : 'rgba(248,113,113,.15)';
+      icon.style.color = keeperOnline ? 'var(--mint-2)' : 'var(--coral-2)';
+      icon.style.borderColor = keeperOnline ? 'var(--mint-2)' : 'var(--coral-2)';
+    }
+    if (lat) lat.textContent = keeperOnline ? 'authenticated' : 'offline';
+  }
 }
 
 async function fetchAndRender() {
