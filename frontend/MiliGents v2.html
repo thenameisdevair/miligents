@@ -715,7 +715,7 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
   <div class="topright">
     <span class="live"><span class="dot"></span> Mainnet</span>
     <span class="clock" id="clock">14:23:08 UTC</span>
-    <button class="btn-connect"><span class="d"></span>0xa1b2…3c4d</button>
+    <button class="btn-connect"><span class="d"></span><span id="wallet-addr-header">0x0000…0000</span></button>
     <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme" title="Toggle theme">
       <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
       <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -980,7 +980,7 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
         <div class="field">
           <label>Operator wallet</label>
           <div class="connect-row">
-            <div class="a"><span class="d"></span><span>0xa1b2…3c4d</span> <span class="muted">· connected via WalletConnect</span></div>
+            <div class="a"><span class="d"></span><span id="wallet-addr-deploy">0x0000…0000</span> <span class="muted">· connected via WalletConnect</span></div>
             <span class="net">Mainnet · L1</span>
           </div>
         </div>
@@ -1100,7 +1100,7 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
         <div class="avatar"></div>
         <div>
           <div class="label">Operator wallet</div>
-          <div class="v">0xa1b2…3c4d</div>
+          <div class="v" id="wallet-addr-dash">0x0000…0000</div>
           <div class="sub">connected · mainnet</div>
         </div>
       </div>
@@ -1386,17 +1386,7 @@ function drawSpark(){
   $('#spark-dot').setAttribute('cy', last[1]);
 }
 drawSpark();
-function tickTreas(){
-  const d = (Math.random()-0.42)*0.05;
-  bal = Math.max(45, bal + d);
-  sparkData.shift(); sparkData.push(bal);
-  drawSpark();
-  $('#t-bal').textContent = bal.toFixed(3) + ' ETH';
-  const usd = bal*3252.49;
-  $('#t-usd').textContent = '$' + usd.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  $('#d-treasury').textContent = '$' + usd.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-}
-setInterval(tickTreas, 1400);
+// Treasury values are populated by renderTreasury() from /api/treasury — no fake animation.
 
 /* ================= UPTIME ================= */
 let uptimeBase = Date.now() - (14*86400 + 6*3600 + 42*60)*1000;
@@ -1461,11 +1451,7 @@ sl.addEventListener('input',()=>{
 sl.dispatchEvent(new Event('input'));
 
 /* ================= HERO TICKERS ================= */
-let hTreas = 163920;
-setInterval(()=>{
-  hTreas += Math.floor((Math.random()-.4)*120);
-  $('#hero-treas').textContent = '$' + hTreas.toLocaleString();
-}, 1800);
+// hero-treas value is populated by renderTreasury() from /api/treasury — no fake animation.
 
 /* ================= API WIRING ================= */
 const API = (typeof window !== 'undefined' && window.MILIGENTS_API) || 'http://localhost:8081';
@@ -1582,14 +1568,32 @@ function renderInftGrid(infts) {
   }).join('');
 }
 
-function renderTreasury(treasury, history) {
+function truncateAddr(a) {
+  if (!a || a.length < 10) return a || '';
+  return a.slice(0, 6) + '…' + a.slice(-4);
+}
+
+function renderWalletAddress(addr) {
+  if (!addr) return;
+  const t = truncateAddr(addr);
+  ['wallet-addr-header', 'wallet-addr-deploy', 'wallet-addr-dash'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = t;
+  });
+}
+
+function renderTreasury(payload, history) {
+  if (!payload) return;
+  const treasury = payload.treasury || payload;
+  if (payload.wallet_address) renderWalletAddress(payload.wallet_address);
   if (!treasury) return;
   const ethBal = parseFloat(treasury.eth_balance || 0);
-  const usdVal = treasury.usd_value || '$0.00';
-  if (document.getElementById('t-bal')) document.getElementById('t-bal').textContent = ethBal.toFixed(3) + ' ETH';
-  if (document.getElementById('t-usd')) document.getElementById('t-usd').textContent = usdVal;
-  if (document.getElementById('d-treasury')) document.getElementById('d-treasury').textContent = usdVal;
-  if (document.getElementById('hero-treas')) document.getElementById('hero-treas').textContent = usdVal;
+  const ethDisplay = ethBal.toFixed(3) + ' ETH';
+  const usdVal = treasury.usd_value || null;
+  if (document.getElementById('t-bal')) document.getElementById('t-bal').textContent = ethDisplay;
+  if (document.getElementById('t-usd')) document.getElementById('t-usd').textContent = usdVal || '—';
+  if (document.getElementById('d-treasury')) document.getElementById('d-treasury').textContent = ethDisplay;
+  if (document.getElementById('hero-treas')) document.getElementById('hero-treas').textContent = ethDisplay;
   if (history && history.length > 1) {
     const vals = history.map(h => parseFloat(h.eth_balance || 0));
     const W = 300, H = 80, P = 4;
@@ -1611,7 +1615,10 @@ function renderTreasury(treasury, history) {
   }
 }
 
-function renderStats(stats) {
+function renderStats(payload) {
+  if (!payload) return;
+  const stats = payload.stats || payload;
+  if (payload.wallet_address) renderWalletAddress(payload.wallet_address);
   if (!stats) return;
   if (document.getElementById('d-nfts')) document.getElementById('d-nfts').textContent = stats.inft_count || 0;
   if (document.getElementById('hero-nfts')) document.getElementById('hero-nfts').textContent = stats.inft_count || 0;
@@ -1686,8 +1693,8 @@ async function fetchAndRender() {
     if (axl.messages && axl.messages.length) renderAxlFeed(axl.messages);
     if (tasks.tasks && tasks.tasks.length) renderKeeperTasks(tasks.tasks);
     if (infts.infts && infts.infts.length) renderInftGrid(infts.infts);
-    if (treasury.treasury) renderTreasury(treasury.treasury, history.history || []);
-    if (stats.stats) renderStats(stats.stats);
+    renderTreasury(treasury, history.history || []);
+    renderStats(stats);
     if (services) renderServices(services);
   } catch (e) {
     console.warn('[MiliGents] API not reachable — running on mock data', e);
