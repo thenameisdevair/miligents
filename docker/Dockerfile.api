@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir --timeout 120 --retries 5 fastapi uvicorn[standar
 
 COPY api/ ./api/
 COPY integrations/ ./integrations/
+COPY frontend/ ./frontend/
 
 ENV STATE_DIR=/app/state
 
