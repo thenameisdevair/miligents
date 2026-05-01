@@ -8,6 +8,7 @@ Strategy is read from EXECUTION_STRATEGY env var.
 import sys
 import os
 import signal
+import threading
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 from integrations.state_writer import write_agent_status
 
@@ -59,8 +60,9 @@ def run():
         print("\n[Execution] Shutting down gracefully...")
         sys.exit(0)
 
-    signal.signal(signal.SIGINT, handle_shutdown)
-    signal.signal(signal.SIGTERM, handle_shutdown)
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGINT, handle_shutdown)
+        signal.signal(signal.SIGTERM, handle_shutdown)
 
     print(f"[Execution] Starting execution of '{strategy}'...")
     write_agent_status("execution", "running", current_task=f"Executing strategy: {strategy}")

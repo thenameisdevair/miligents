@@ -8,6 +8,7 @@ Run this to start the MiliGents autonomous agent organism.
 import sys
 import os
 import signal
+import threading
 import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 from integrations.state_writer import write_agent_status
@@ -63,8 +64,9 @@ def run():
         print("\n[Originator] Shutting down gracefully...")
         sys.exit(0)
 
-    signal.signal(signal.SIGINT, handle_shutdown)
-    signal.signal(signal.SIGTERM, handle_shutdown)
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGINT, handle_shutdown)
+        signal.signal(signal.SIGTERM, handle_shutdown)
 
     try:
         result = crew.kickoff()
