@@ -59,7 +59,7 @@ def create_originator() -> Agent:
             get_pubkey_tool
         ],
         llm=f"cerebras/{os.getenv('LLM_MODEL', 'llama3.1-8b')}",
-        verbose=True,
+        verbose=False,
         allow_delegation=False,
-        max_iter=10
+        max_iter=4
     )
