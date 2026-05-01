@@ -50,6 +50,8 @@ from api.db import (
     get_summary_stats,
     get_cycles,
 )
+from integrations.state_writer import write_treasury_snapshot
+from integrations.wallet import get_eth_balance
 
 app = FastAPI(title="MiliGents API", version="1.0.0")
 
@@ -128,7 +130,26 @@ def infts(limit: int = 20):
 
 @app.get("/api/treasury")
 def treasury():
-    return {"treasury": get_latest_treasury()}
+    """
+    Fetch the organism's treasury wallet balance from the configured
+    EVM RPC, write a snapshot to state.db, and return the latest snapshot.
+
+    On RPC failure, returns the last known snapshot without writing.
+    """
+    address = os.getenv("WALLET_ADDRESS")
+    rpc_error = None
+    if address:
+        try:
+            balance = get_eth_balance(address)
+            write_treasury_snapshot(eth_balance=balance)
+        except Exception as e:
+            rpc_error = str(e)
+
+    return {
+        "treasury": get_latest_treasury(),
+        "wallet_address": address,
+        "rpc_error": rpc_error,
+    }
 
 
 @app.get("/api/treasury/history")
@@ -140,7 +161,10 @@ def treasury_history(limit: int = 60):
 
 @app.get("/api/stats")
 def stats():
-    return {"stats": get_summary_stats()}
+    return {
+        "stats": get_summary_stats(),
+        "wallet_address": os.getenv("WALLET_ADDRESS"),
+    }
 
 
 # ─── Service Health ───────────────────────────────────────────────────────────
