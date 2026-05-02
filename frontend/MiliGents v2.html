@@ -1014,8 +1014,8 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
         <div class="field">
           <label>Operator wallet</label>
           <div class="connect-row">
-            <div class="a"><span class="d"></span><span id="wallet-addr-deploy">0x0000…0000</span> <span class="muted">· connected via WalletConnect</span></div>
-            <span class="net">Mainnet · L1</span>
+            <div class="a"><span class="d" id="deploy-wallet-dot"></span><span id="wallet-addr-deploy">0x0000…0000</span> <span class="muted" id="deploy-wallet-status">· not signed</span></div>
+            <span class="net" id="deploy-wallet-network">Wallet</span>
           </div>
         </div>
 
@@ -1067,10 +1067,10 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
         </div>
 
         <div class="deploy-cta">
-          <button class="btn primary lg">Deploy organism →</button>
+          <button class="btn primary lg" id="deploy-action">Connect wallet</button>
           <div class="meta">
-            <span>SIGN &amp; BROADCAST</span>
-            <span>EST. 14s CONFIRMATION · IRREVERSIBLE</span>
+            <span id="deploy-meta-left">OWNER SIGNATURE REQUIRED</span>
+            <span id="deploy-meta-right">NO FUNDS MOVE DURING SIGN-IN</span>
           </div>
         </div>
       </div>
@@ -1449,6 +1449,231 @@ function escapeHtml(value) {
     "'": '&#039;',
   }[ch]));
 }
+
+/* ================= DEPLOY ORGANISM FLOW ================= */
+const deployState = {
+  status: 'not_connected',
+  ownerWallet: null,
+  chainId: null,
+  session: null,
+  organism: null,
+  funding: [],
+  error: null,
+};
+
+function getSelectedToken() {
+  const selected = document.querySelector('.amt .toggle button.on');
+  return selected?.dataset?.tk || 'ETH';
+}
+
+function getSelectedRisk() {
+  return document.querySelector('#risk-seg button.on')?.dataset?.r || 'balanced';
+}
+
+function getSelectedDomains() {
+  return [...document.querySelectorAll('#chips .chip.on')].map(chip => chip.textContent.trim());
+}
+
+function chainLabel(chainId) {
+  const id = Number(chainId);
+  if (id === 1) return 'Ethereum';
+  if (id === 8453) return 'Base';
+  if (id === 11155111) return 'Sepolia';
+  if (id === 16601 || id === 16602) return '0G';
+  return chainId ? `Chain ${chainId}` : 'Wallet';
+}
+
+function setDeployState(next) {
+  Object.assign(deployState, next);
+  renderDeployState();
+}
+
+function renderDeployState() {
+  const btn = document.getElementById('deploy-action');
+  const left = document.getElementById('deploy-meta-left');
+  const right = document.getElementById('deploy-meta-right');
+  const status = document.getElementById('deploy-wallet-status');
+  const net = document.getElementById('deploy-wallet-network');
+  const dot = document.getElementById('deploy-wallet-dot');
+  if (!btn) return;
+
+  if (deployState.ownerWallet) renderWalletAddress(deployState.ownerWallet);
+  if (net) net.textContent = chainLabel(deployState.chainId);
+  if (dot) dot.style.background = deployState.session ? 'var(--mint-2)' : 'var(--gold)';
+
+  const funding = deployState.funding?.[0];
+  const deposit = funding?.deposit_address;
+  const statusText = {
+    not_connected: '· not connected',
+    connected_not_signed: '· signature required',
+    signed_ready_to_deploy: '· signed owner session',
+    creating_organism: '· creating organism',
+    needs_execution_wallet: '· execution wallet pending',
+    needs_funding: '· needs funding',
+    active: '· active',
+    error: '· action needed',
+  }[deployState.status] || '· ready';
+  if (status) status.textContent = statusText;
+
+  const buttonText = {
+    not_connected: 'Connect wallet',
+    connected_not_signed: 'Sign to create organism',
+    signed_ready_to_deploy: 'Create organism',
+    creating_organism: 'Creating organism...',
+    needs_execution_wallet: 'Execution wallet pending',
+    needs_funding: 'Check funding',
+    active: 'Open dashboard',
+    error: 'Retry',
+  }[deployState.status] || 'Create organism';
+  btn.textContent = buttonText;
+  btn.disabled = deployState.status === 'creating_organism' || deployState.status === 'needs_execution_wallet';
+
+  if (left && right) {
+    if (deployState.error) {
+      left.textContent = 'ERROR';
+      right.textContent = deployState.error.slice(0, 48);
+    } else if (deposit) {
+      left.textContent = 'FUND EXECUTION WALLET';
+      right.textContent = truncateAddr(deposit) + ' · ' + (funding.network || 'network');
+    } else if (deployState.session) {
+      left.textContent = 'OWNER VERIFIED';
+      right.textContent = 'READY TO CREATE ORGANISM';
+    } else {
+      left.textContent = 'OWNER SIGNATURE REQUIRED';
+      right.textContent = 'NO FUNDS MOVE DURING SIGN-IN';
+    }
+  }
+}
+
+async function loadAuthSession() {
+  try {
+    const res = await fetch(`${API}/api/auth/session`, { credentials: 'include' });
+    const data = await res.json();
+    if (data.authenticated && data.session) {
+      setDeployState({
+        status: 'signed_ready_to_deploy',
+        session: data.session,
+        ownerWallet: data.session.owner_wallet,
+        chainId: data.session.chain_id,
+        error: null,
+      });
+      await loadOwnedOrganisms();
+    } else {
+      renderDeployState();
+    }
+  } catch (e) {
+    renderDeployState();
+  }
+}
+
+async function connectAndSignOwnerWallet() {
+  if (!window.ethereum) {
+    setDeployState({ status: 'error', error: 'No browser wallet found' });
+    return;
+  }
+  try {
+    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    const address = accounts?.[0];
+    const chainHex = await window.ethereum.request({ method: 'eth_chainId' });
+    const chainId = parseInt(chainHex, 16);
+    setDeployState({ status: 'connected_not_signed', ownerWallet: address, chainId, error: null });
+
+    const nonceRes = await fetch(`${API}/api/auth/nonce?address=${encodeURIComponent(address)}&chain_id=${encodeURIComponent(chainId)}`, { credentials: 'include' });
+    const nonceData = await nonceRes.json();
+    if (!nonceData.auth?.message) throw new Error(nonceData.error || 'Could not create auth nonce');
+
+    const signature = await window.ethereum.request({
+      method: 'personal_sign',
+      params: [nonceData.auth.message, address],
+    });
+    const verifyRes = await fetch(`${API}/api/auth/verify`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address, chain_id: chainId, message: nonceData.auth.message, signature }),
+    });
+    const verified = await verifyRes.json();
+    if (verified.status !== 'ok') throw new Error(verified.error || 'Signature verification failed');
+    setDeployState({
+      status: 'signed_ready_to_deploy',
+      session: verified.session,
+      ownerWallet: verified.session.owner_wallet,
+      chainId: verified.session.chain_id,
+      error: null,
+    });
+    await loadOwnedOrganisms();
+  } catch (e) {
+    setDeployState({ status: 'error', error: e.message || String(e) });
+  }
+}
+
+function collectOrganismPayload() {
+  return {
+    name: 'MiliGents Organism',
+    domains: getSelectedDomains(),
+    risk_profile: getSelectedRisk(),
+    max_child_agents: Number(document.getElementById('agent-slider')?.value || 3),
+    treasury_target_amount: document.getElementById('treasury-input')?.value || '0',
+    treasury_asset: getSelectedToken(),
+    network: Number(deployState.chainId) === 8453 ? 'base' : 'sepolia',
+  };
+}
+
+async function createOrganismFromDeploy() {
+  setDeployState({ status: 'creating_organism', error: null });
+  try {
+    const res = await fetch(`${API}/api/organisms`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(collectOrganismPayload()),
+    });
+    const data = await res.json();
+    if (data.status !== 'ok') throw new Error(data.error || 'Organism create failed');
+    localStorage.setItem('mg-active-organism', data.organism.organism_id);
+    setDeployState({
+      status: data.organism.status,
+      organism: data.organism,
+      funding: data.funding || [],
+      error: null,
+    });
+    await fetchAndRender();
+  } catch (e) {
+    setDeployState({ status: 'error', error: e.message || String(e) });
+  }
+}
+
+async function loadOwnedOrganisms() {
+  try {
+    const res = await fetch(`${API}/api/organisms`, { credentials: 'include' });
+    const data = await res.json();
+    const selectedId = localStorage.getItem('mg-active-organism');
+    const organism = (data.organisms || []).find(o => o.organism_id === selectedId) || (data.organisms || [])[0];
+    if (!organism) return;
+    localStorage.setItem('mg-active-organism', organism.organism_id);
+    const details = await fetch(`${API}/api/organisms/${encodeURIComponent(organism.organism_id)}`, { credentials: 'include' }).then(r => r.json());
+    if (details.status === 'ok') {
+      setDeployState({
+        status: details.organism.status || 'active',
+        organism: details.organism,
+        funding: details.funding || [],
+        error: null,
+      });
+    }
+  } catch (e) {
+    console.warn('[MiliGents] organism session load failed', e);
+  }
+}
+
+async function handleDeployAction() {
+  if (!deployState.session) return connectAndSignOwnerWallet();
+  if (deployState.status === 'signed_ready_to_deploy' || deployState.status === 'error') return createOrganismFromDeploy();
+  if (deployState.status === 'active') return go('dashboard');
+  if (deployState.status === 'needs_funding') return loadOwnedOrganisms();
+}
+
+const deployActionBtn = document.getElementById('deploy-action');
+if (deployActionBtn) deployActionBtn.addEventListener('click', handleDeployAction);
 
 function relTime(iso) {
   const time = new Date(iso).getTime();
@@ -1898,10 +2123,18 @@ if (khTransferBtn) khTransferBtn.addEventListener('click', triggerKeeperHubTestT
 
 /* Initial fetch */
 fetchAndRender();
+loadAuthSession();
 
 /* Poll every 5s as fallback */
 setInterval(fetchAndRender, 5000);
 setInterval(tickActivityTimes, 1000);
+
+if (window.ethereum?.on) {
+  window.ethereum.on('accountsChanged', () => {
+    setDeployState({ status: 'not_connected', ownerWallet: null, session: null, organism: null, funding: [], error: null });
+  });
+  window.ethereum.on('chainChanged', () => window.location.reload());
+}
 
 /* WebSocket live feed */
 (function connectWS() {
