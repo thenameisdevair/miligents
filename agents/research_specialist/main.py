@@ -45,13 +45,13 @@ def run():
     check_dependencies()
 
     specialist = create_specialist()
-    tasks = create_tasks(domain=domain)
+    tasks = create_tasks(domain=domain, specialist=specialist)
 
     crew = Crew(
         agents=[specialist],
         tasks=tasks,
         process=Process.sequential,
-        verbose=True
+        verbose=False
     )
 
     def handle_shutdown(sig, frame):

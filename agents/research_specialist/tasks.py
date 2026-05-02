@@ -13,7 +13,7 @@ from crewai import Task
 from agents.research_specialist.agent import create_specialist
 
 
-def create_tasks(domain: str = "agentic trading") -> list:
+def create_tasks(domain: str = "agentic trading", specialist=None) -> list:
     """
     Create and return all Specialist tasks in execution order.
 
@@ -24,7 +24,7 @@ def create_tasks(domain: str = "agentic trading") -> list:
     Returns:
         List of CrewAI Task instances.
     """
-    specialist = create_specialist()
+    specialist = specialist or create_specialist()
 
     research_task = Task(
         description=(
@@ -38,11 +38,11 @@ def create_tasks(domain: str = "agentic trading") -> list:
             f"\n4. What are the realistic risks and failure modes? "
             f"\n5. What does a realistic revenue estimate look like per day/week? "
             f"\n6. What is the fastest path to first revenue? "
-            f"\n\nSearch the web extensively. Use multiple queries. "
-            f"Go deep on specifics — not general overviews."
+            f"\n\nUse at most two web searches. Go deep on specifics, "
+            f"but keep notes concise enough for an 8k context model."
         ),
         expected_output=(
-            f"A detailed research summary covering all 6 questions above "
+            f"A concise research summary covering all 6 questions above "
             f"for the '{domain}' domain. Include specific tools, platforms, "
             f"APIs, capital requirements, and honest revenue estimates."
         ),
@@ -60,7 +60,8 @@ def create_tasks(domain: str = "agentic trading") -> list:
             f"\n5. Risk Factors (honest assessment) "
             f"\n6. Estimated Revenue (realistic daily/weekly range) "
             f"\n7. First Steps (what to do in the first 48 hours) "
-            f"\n\nStore the complete report on 0G Storage using store_report tool. "
+            f"\n\nStore a compact report on 0G Storage using store_report tool. "
+            f"Keep the report under 1,500 words. "
             f"The filename must be: '{domain.replace(' ', '_')}_strategy_report' "
             f"\n\nAfter storing, the root_hash will be returned. "
             f"Include it in your final answer."

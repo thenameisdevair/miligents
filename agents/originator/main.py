@@ -47,13 +47,13 @@ def run():
     check_dependencies()
 
     originator = create_originator()
-    tasks = create_tasks()
+    tasks = create_tasks(originator=originator)
 
     crew = Crew(
         agents=[originator],
         tasks=tasks,
         process=Process.sequential,
-        verbose=True
+        verbose=False
     )
 
     print("[Originator] Starting research loop...")

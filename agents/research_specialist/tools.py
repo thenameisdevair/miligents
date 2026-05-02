@@ -23,9 +23,16 @@ import requests
 load_dotenv()
 
 AGENT = "specialist"
+MAX_TOOL_OUTPUT_CHARS = 1800
+MAX_STORED_TEXT_CHARS = 6000
 
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 TAVILY_URL = "https://api.tavily.com/search"
+
+
+def _clip(text: str, limit: int = MAX_TOOL_OUTPUT_CHARS) -> str:
+    text = str(text or "")
+    return text if len(text) <= limit else text[:limit].rstrip() + "\n...[truncated]"
 
 
 @tool("web_search")
@@ -49,7 +56,7 @@ def web_search_tool(query: str) -> str:
                 "api_key": TAVILY_API_KEY,
                 "query": query,
                 "search_depth": "advanced",
-                "max_results": 7
+                "max_results": 3
             },
             timeout=30
         )
@@ -57,12 +64,13 @@ def web_search_tool(query: str) -> str:
         results = response.json().get("results", [])
         formatted = []
         for r in results:
+            content = _clip(r.get("content", ""), 450)
             formatted.append(
                 f"Title: {r.get('title')}\n"
                 f"URL: {r.get('url')}\n"
-                f"Content: {r.get('content')}\n"
+                f"Content: {content}\n"
             )
-        return "\n---\n".join(formatted) if formatted else "No results found."
+        return _clip("\n---\n".join(formatted)) if formatted else "No results found."
     except Exception as e:
         return f"Search failed: {e}"
 
@@ -83,6 +91,7 @@ def store_report_tool(data: str, filename: str) -> str:
         root_hash string if successful, error message otherwise.
     """
     try:
+        data = _clip(data, MAX_STORED_TEXT_CHARS)
         root_hash = upload_data(data, filename)
         store(
             collection="specialist",
@@ -114,8 +123,8 @@ def search_memory_tool(query: str) -> str:
         return "No relevant past research found."
     formatted = []
     for r in results:
-        formatted.append(f"Document: {r['id']}\nContent: {r['text'][:500]}...")
-    return "\n---\n".join(formatted)
+        formatted.append(f"Document: {r['id']}\nContent: {_clip(r['text'], 300)}")
+    return _clip("\n---\n".join(formatted))
 
 
 @tool("receive_assignment")
@@ -137,7 +146,7 @@ def receive_assignment_tool(dummy: str = "") -> str:
             return "no assignment yet"
         for msg in messages:
             if msg.get("type") == "SPAWN_SPECIALIST":
-                return json.dumps(msg)
+                return _clip(json.dumps(msg), 900)
         return "no assignment yet"
     except Exception as e:
         return f"AXL receive failed: {e}"

@@ -207,6 +207,14 @@ def write_axl_message(
         )
         conn.commit()
         conn.close()
+        write_activity(from_agent, "axl_send", f"sent {msg_type} to {to_agent}", {
+            "to_agent": to_agent,
+            "msg_type": msg_type,
+        })
+        write_activity(to_agent, "axl_recv", f"received {msg_type} from {from_agent}", {
+            "from_agent": from_agent,
+            "msg_type": msg_type,
+        })
     except Exception as e:
         print(f"[StateWriter] write_axl_message failed: {e}")
 
@@ -235,6 +243,11 @@ def write_storage_record(
         )
         conn.commit()
         conn.close()
+        root_short = root_hash[:10] + "…" if len(root_hash) > 10 else root_hash
+        write_activity(agent_id, "storage", f"stored {filename} (root: {root_short})", {
+            "filename": filename,
+            "root_hash": root_hash,
+        })
     except Exception as e:
         print(f"[StateWriter] write_storage_record failed: {e}")
 
@@ -305,6 +318,14 @@ def write_inft(
         )
         conn.commit()
         conn.close()
+        name = strategy_name or "strategy"
+        write_activity(agent_id, "inft_mint", f"minted v{version} of {name} (token #{token_id})", {
+            "token_id": token_id,
+            "root_hash": root_hash,
+            "strategy_name": strategy_name,
+            "version": version,
+            "mint_tx": mint_tx,
+        })
     except Exception as e:
         print(f"[StateWriter] write_inft failed: {e}")
 

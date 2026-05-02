@@ -33,6 +33,8 @@ import requests
 load_dotenv()
 
 AGENT = "execution"
+MAX_TOOL_OUTPUT_CHARS = 1800
+MAX_STORED_TEXT_CHARS = 5000
 
 # How long to poll an execution before giving up. Each poll is ~3s.
 KEEPERHUB_POLL_INTERVAL_SECONDS = 3
@@ -40,6 +42,11 @@ KEEPERHUB_POLL_MAX_ATTEMPTS = 10
 
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 TAVILY_URL = "https://api.tavily.com/search"
+
+
+def _clip(text: str, limit: int = MAX_TOOL_OUTPUT_CHARS) -> str:
+    text = str(text or "")
+    return text if len(text) <= limit else text[:limit].rstrip() + "\n...[truncated]"
 
 
 @tool("receive_strategy")
@@ -61,7 +68,7 @@ def receive_strategy_tool(dummy: str = "") -> str:
             return "no assignment yet"
         for msg in messages:
             if msg.get("type") in ["INSTRUCTION", "SPAWN_EXECUTION"]:
-                return json.dumps(msg)
+                return _clip(json.dumps(msg), 900)
         return "no assignment yet"
     except Exception as e:
         return f"AXL receive failed: {e}"
@@ -149,6 +156,7 @@ def run_keeperhub_action_tool(name: str, description: str) -> str:
 
 
 @tool("create_keeperhub_workflow")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: f"creating workflow: {(a[0] if a else k.get('name', '?'))[:60]}")
 def create_workflow_tool(name: str, description: str) -> str:
     """
     Create a new KeeperHub workflow for on-chain execution.
@@ -175,6 +183,7 @@ def create_workflow_tool(name: str, description: str) -> str:
 
 
 @tool("generate_keeperhub_workflow")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: f"generating workflow: {(a[0] if a else k.get('prompt', '?'))[:60]}")
 def generate_workflow_tool(prompt: str) -> str:
     """
     Generate a KeeperHub workflow from a natural language prompt.
@@ -194,6 +203,7 @@ def generate_workflow_tool(prompt: str) -> str:
 
 
 @tool("execute_keeperhub_workflow")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: f"executing workflow: {(a[0] if a else k.get('workflow_id', '?'))[:60]}")
 def execute_workflow_tool(workflow_id: str) -> str:
     """
     Execute a KeeperHub workflow by ID.
@@ -221,6 +231,7 @@ def execute_workflow_tool(workflow_id: str) -> str:
 
 
 @tool("check_execution_status")
+@emit(agent_id=AGENT, summary_fn=lambda a, k: f"checking execution: {(a[0] if a else k.get('execution_id', '?'))[:60]}")
 def check_status_tool(execution_id: str) -> str:
     """
     Check the status of a KeeperHub workflow execution.
@@ -261,25 +272,17 @@ def store_strategy_tool(strategy: str, version: int, agent_name: str) -> str:
         JSON string with root_hash and token_id.
     """
     try:
+        strategy = _clip(strategy, MAX_STORED_TEXT_CHARS)
         filename = f"{agent_name}_strategy_v{version}"
         root_hash = upload_data(strategy, filename)
 
-        token_id = mint_inft(root_hash, {
+        minted = mint_inft(root_hash, {
             "agent": agent_name,
             "version": version,
             "type": "execution_strategy"
         })
-
-        store(
-            collection="execution",
-            doc_id=filename,
-            text=strategy,
-            metadata={
-                "root_hash": root_hash,
-                "token_id": token_id,
-                "version": version
-            }
-        )
+        token_id = minted["token_id"]
+        mint_tx = minted.get("mint_tx")
 
         write_storage_record("execution", filename, root_hash)
         write_inft(
@@ -287,15 +290,32 @@ def store_strategy_tool(strategy: str, version: int, agent_name: str) -> str:
             token_id=str(token_id),
             root_hash=root_hash,
             strategy_name=filename,
-            version=version
+            version=version,
+            mint_tx=mint_tx
         )
         write_agent_status("execution", "running", current_task=f"Minted iNFT v{version}: token {token_id}")
         from integrations.state_writer import write_treasury_snapshot
         write_treasury_snapshot(eth_balance="0.05", usd_value="$162.50")
 
+        try:
+            store(
+                collection="execution",
+                doc_id=filename,
+                text=strategy,
+                metadata={
+                    "root_hash": root_hash,
+                    "token_id": token_id,
+                    "mint_tx": mint_tx,
+                    "version": version
+                }
+            )
+        except Exception as e:
+            write_activity("execution", "error", f"memory store skipped: {type(e).__name__}")
+
         return json.dumps({
             "root_hash": root_hash,
             "token_id": token_id,
+            "mint_tx": mint_tx,
             "version": version,
             "filename": filename
         })
@@ -370,10 +390,11 @@ def web_search_tool(query: str) -> str:
         results = response.json().get("results", [])
         formatted = []
         for r in results:
+            content = _clip(r.get("content", ""), 350)
             formatted.append(
                 f"Title: {r.get('title')}\n"
-                f"Content: {r.get('content', '')[:300]}\n"
+                f"Content: {content}\n"
             )
-        return "\n---\n".join(formatted) if formatted else "No results."
+        return _clip("\n---\n".join(formatted)) if formatted else "No results."
     except Exception as e:
         return f"Search failed: {e}"

@@ -27,33 +27,28 @@ def create_execution_agent() -> Agent:
         Configured CrewAI Agent instance.
     """
     from agents.execution.tools import (
-        receive_strategy_tool,
         run_keeperhub_action_tool,
         store_strategy_tool,
         report_status_tool,
-        web_search_tool
     )
 
     return Agent(
         role="Execution Agent",
         goal=(
-            "Execute the assigned strategy via KeeperHub. Measure honestly. "
-            "Mint a new iNFT version when the strategy improves. Report metrics."
+            "Execute one assigned strategy via KeeperHub, mint one iNFT proof, "
+            "and report completion."
         ),
         backstory=(
-            "You execute, measure, and improve. Every on-chain action goes through "
-            "KeeperHub — call run_keeperhub_action with a clear name and description "
-            "and the tool handles workflow creation, execution, and confirmation."
+            "You are a compact execution worker. Use only the required tools and "
+            "keep outputs short."
         ),
         tools=[
-            receive_strategy_tool,
             run_keeperhub_action_tool,
             store_strategy_tool,
             report_status_tool,
-            web_search_tool
         ],
         llm=f"cerebras/{os.getenv('LLM_MODEL', 'llama3.1-8b')}",
         verbose=False,
         allow_delegation=False,
-        max_iter=4
+        max_iter=3
     )

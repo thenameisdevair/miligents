@@ -6,4 +6,4 @@ COPY agents/execution/ ./agents/execution/
 COPY axl/ ./axl/
 COPY integrations/ ./integrations/
 ENV PYTHONPATH=/app
-CMD ["python", "-m", "uvicorn", "agents.execution.server:app", "--host", "0.0.0.0", "--port", "8003"]
+CMD ["sh", "-c", "python -m axl.local_bridge & exec python -m uvicorn agents.execution.server:app --host 0.0.0.0 --port 8003"]

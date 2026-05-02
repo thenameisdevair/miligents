@@ -8,6 +8,7 @@ All inter-agent messages follow the envelope defined in ARCHITECTURE.md.
 
 import json
 import os
+import time
 import requests
 from datetime import datetime, timezone
 from dotenv import load_dotenv
@@ -17,6 +18,8 @@ load_dotenv()
 # AXL HTTP bridge — each container exposes its node on localhost
 AXL_API_PORT = int(os.getenv("AXL_API_PORT", "9002"))
 AXL_BASE_URL = f"http://localhost:{AXL_API_PORT}"
+AXL_RETRIES = int(os.getenv("AXL_RETRIES", "5"))
+AXL_RETRY_DELAY = float(os.getenv("AXL_RETRY_DELAY", "0.5"))
 
 
 def send_message(destination_pubkey: str, message: dict) -> bool:
@@ -34,17 +37,22 @@ def send_message(destination_pubkey: str, message: dict) -> bool:
     if "timestamp" not in message:
         message["timestamp"] = datetime.now(timezone.utc).isoformat()
 
-    try:
-        response = requests.post(
-            f"{AXL_BASE_URL}/send",
-            headers={"X-Destination-Peer-Id": destination_pubkey},
-            data=json.dumps(message),
-            timeout=10
-        )
-        return response.status_code == 200
-    except requests.RequestException as e:
-        print(f"[AXL] send_message failed: {e}")
-        return False
+    last_error = None
+    for attempt in range(AXL_RETRIES):
+        try:
+            response = requests.post(
+                f"{AXL_BASE_URL}/send",
+                headers={"X-Destination-Peer-Id": destination_pubkey},
+                data=json.dumps(message),
+                timeout=10
+            )
+            return response.status_code == 200
+        except requests.RequestException as e:
+            last_error = e
+            if attempt < AXL_RETRIES - 1:
+                time.sleep(AXL_RETRY_DELAY)
+    print(f"[AXL] send_message failed: {last_error}")
+    return False
 
 
 def receive_messages() -> list[dict]:
@@ -56,23 +64,28 @@ def receive_messages() -> list[dict]:
         body and a _from_peer_id key with the sender's public key.
         Returns empty list if no messages or on error.
     """
-    try:
-        response = requests.get(
-            f"{AXL_BASE_URL}/recv",
-            timeout=10
-        )
-        if response.status_code == 200 and response.text:
-            sender_pubkey = response.headers.get("X-From-Peer-Id", "unknown")
-            try:
-                body = json.loads(response.text)
-            except json.JSONDecodeError:
-                body = {"raw": response.text}
-            body["_from_peer_id"] = sender_pubkey
-            return [body]
-        return []
-    except requests.RequestException as e:
-        print(f"[AXL] receive_messages failed: {e}")
-        return []
+    last_error = None
+    for attempt in range(AXL_RETRIES):
+        try:
+            response = requests.get(
+                f"{AXL_BASE_URL}/recv",
+                timeout=10
+            )
+            if response.status_code == 200 and response.text:
+                sender_pubkey = response.headers.get("X-From-Peer-Id", "unknown")
+                try:
+                    body = json.loads(response.text)
+                except json.JSONDecodeError:
+                    body = {"raw": response.text}
+                body["_from_peer_id"] = sender_pubkey
+                return [body]
+            return []
+        except requests.RequestException as e:
+            last_error = e
+            if attempt < AXL_RETRIES - 1:
+                time.sleep(AXL_RETRY_DELAY)
+    print(f"[AXL] receive_messages failed: {last_error}")
+    return []
 
 
 def get_our_pubkey() -> str:
@@ -94,17 +107,22 @@ def get_topology() -> dict:
         Dict containing our_public_key, our_ipv6, and peer information.
         Returns empty dict on error.
     """
-    try:
-        response = requests.get(
-            f"{AXL_BASE_URL}/topology",
-            timeout=10
-        )
-        if response.status_code == 200:
-            return response.json()
-        return {}
-    except requests.RequestException as e:
-        print(f"[AXL] get_topology failed: {e}")
-        return {}
+    last_error = None
+    for attempt in range(AXL_RETRIES):
+        try:
+            response = requests.get(
+                f"{AXL_BASE_URL}/topology",
+                timeout=10
+            )
+            if response.status_code == 200:
+                return response.json()
+            return {}
+        except requests.RequestException as e:
+            last_error = e
+            if attempt < AXL_RETRIES - 1:
+                time.sleep(AXL_RETRY_DELAY)
+    print(f"[AXL] get_topology failed: {last_error}")
+    return {}
 
 
 def build_message(

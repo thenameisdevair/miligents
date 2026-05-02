@@ -60,7 +60,7 @@ function getContract() {
  * Mint a new iNFT representing an agent strategy version.
  * @param rootHash - 0G Storage root hash of the strategy data
  * @param metadata - Strategy metadata object
- * @returns token_id as string
+ * @returns token_id and transaction hash
  */
 async function mintINFT(rootHash, metadata) {
     const contract = getContract();
@@ -76,8 +76,8 @@ async function mintINFT(rootHash, metadata) {
             const parsed = iface.parseLog(log);
             if (parsed?.name === "INFTMinted") {
                 const tokenId = parsed.args.tokenId.toString();
-                console.log(`[iNFT] Minted token ID: ${tokenId} → root hash: ${rootHash}`);
-                return tokenId;
+                console.log(`[iNFT] Minted token ID: ${tokenId} → root hash: ${rootHash} tx: ${tx.hash}`);
+                return { token_id: tokenId, mint_tx: tx.hash };
             }
         }
         catch { }

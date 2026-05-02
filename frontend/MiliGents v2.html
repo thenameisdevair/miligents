@@ -407,6 +407,9 @@ footer a:hover{color:var(--gold-2)}
 .lb td.growth{color:var(--mint-2);font-weight:600;font-variant-numeric:tabular-nums}
 .lb td.growth.neg{color:var(--coral-2)}
 .lb td.last{color:var(--slate-mute)}
+.lb td.artifact{max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--slate-2)}
+.lb a.hash{color:var(--gold-2);text-decoration:none;border-bottom:1px dashed rgba(212,160,23,.45)}
+.lb a.hash:hover{color:var(--slate);border-bottom-color:var(--slate)}
 .lb tr.divider td{background:var(--stone-2);font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--slate-mute);padding:8px 20px;text-align:center;border-top:1px solid var(--line)}
 html[data-theme="dark"] .lb tbody tr:nth-child(odd) td:not(:empty){background:#1f1c15}
 html[data-theme="dark"] .lb tr.divider td{background:#15130e}
@@ -567,6 +570,35 @@ html[data-theme="dark"] .agent-card .badge.spawn{color:#e8c46a}
 .agent-card .meta{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--slate-mute);padding-top:14px;border-top:1px solid var(--line)}
 .agent-card .meta b{color:var(--slate);font-weight:500;font-variant-numeric:tabular-nums}
 
+/* live activity */
+.live-activity{margin-bottom:32px}
+.demo-run-btn{
+  border:1px solid var(--gold);background:var(--gold-soft);color:var(--gold-2);
+  border-radius:6px;padding:7px 10px;font-family:var(--mono);font-size:10px;
+  letter-spacing:.12em;text-transform:uppercase;font-weight:700;cursor:pointer;
+}
+.demo-run-btn:hover{filter:brightness(1.04)}
+.demo-run-btn:disabled{opacity:.55;cursor:wait}
+html[data-theme="dark"] .demo-run-btn{color:#e8c46a}
+.activity-grid{display:grid;grid-template-columns:repeat(4,1fr);min-height:330px}
+.activity-agent{padding:18px 18px 16px;border-right:1px solid var(--line);min-width:0}
+.activity-agent:last-child{border-right:0}
+.activity-agent .ah{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.activity-agent .an{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--slate-dim);font-weight:600}
+.activity-status{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--slate-mute)}
+.activity-status .sd{width:7px;height:7px;border-radius:50%;background:var(--slate-mute)}
+.activity-status.running .sd{background:var(--mint-2);box-shadow:0 0 0 3px rgba(74,222,128,.2);animation:pulse 1.6s ease-in-out infinite}
+.activity-status.complete .sd{background:var(--mint-2)}
+.activity-status.error .sd{background:var(--coral-2);box-shadow:0 0 0 3px rgba(248,113,113,.18)}
+.activity-feed{height:246px;overflow-y:auto;padding-right:4px}
+.activity-row{display:grid;grid-template-columns:auto 1fr;gap:8px;padding:7px 0;border-bottom:1px solid rgba(148,163,184,.16);font-family:var(--mono);font-size:12px;line-height:1.45;color:var(--slate-2)}
+.activity-row:last-child{border-bottom:0}
+.activity-row.new{animation:lineIn .35s ease}
+.activity-row .ts{color:var(--gold-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.activity-row .msg{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.activity-row .ico{display:inline-block;width:18px;text-align:center;margin-right:4px}
+.activity-empty{font-family:var(--mono);font-size:12px;color:var(--slate-mute);padding:10px 0}
+
 /* axl panel */
 .axl-feed{height:380px;margin-bottom:32px}
 .axl-line{display:flex;gap:14px;align-items:flex-start;padding:5px 0;font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:13px}
@@ -675,11 +707,13 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
   .hero h1{font-size:60px}
   .hero-row{grid-template-columns:1fr}
   .organism{height:380px}
-  .stats-bar, .global-grid, .deploy-grid, .agents-row, .bottom-grid, .inft-grid, .partners-grid, .steps, .arch-flow{grid-template-columns:1fr 1fr}
+  .stats-bar, .global-grid, .deploy-grid, .agents-row, .bottom-grid, .inft-grid, .partners-grid, .steps, .arch-flow, .activity-grid{grid-template-columns:1fr 1fr}
   .arch-flow{grid-template-columns:1fr}
   .arch-line{display:none}
   .dash-strip{grid-template-columns:1fr 1fr}
   .dash-strip .cell{border-right:0;border-bottom:1px solid var(--line)}
+  .activity-agent:nth-child(2){border-right:0}
+  .activity-agent:nth-child(-n+2){border-bottom:1px solid var(--line)}
 }
 </style>
 </head>
@@ -755,9 +789,9 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
           <div class="satellite active s3">EXEC</div>
           <div class="satellite s4">BRDG</div>
           <div class="ticker">
-            <span>treasury <span class="v" id="hero-treas">$163,920</span></span>
+            <span>treasury <span class="v" id="hero-treas">0.000 ETH</span></span>
             <span>iNFTs <span class="v" id="hero-nfts">7</span></span>
-            <span>uptime <span class="v">14d 06h</span></span>
+            <span>agents <span class="v" id="hero-agents">0</span></span>
           </div>
         </div>
       </div>
@@ -889,31 +923,31 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
 <section class="page" id="p-global">
   <div class="wrap">
     <div class="page-head">
-      <div class="label gold crumb">Public observatory · No wallet required</div>
-      <h1>The MiliGents <em>ecosystem.</em></h1>
-      <p class="sub">A live view of every organism deployed across the network — anonymized, real-time, public by default.</p>
+      <div class="label gold crumb">Public observatory · Verified backend state</div>
+      <h1>The MiliGents <em>organism.</em></h1>
+      <p class="sub">A live view of this organism's persisted proofs — storage roots, iNFT roots, agent activity, and treasury state from the backend.</p>
     </div>
 
     <div class="stats-bar">
       <div class="stat-cell">
-        <div class="label">Total treasury value</div>
-        <div class="v gold">$<span id="g-treasury">8,418,902</span></div>
-        <div class="delta">▲ <span id="g-treasury-d">+$12,408</span> (24h)</div>
+        <div class="label">Treasury balance</div>
+        <div class="v gold"><span id="g-treasury">0.000 ETH</span></div>
+        <div class="delta" id="g-treasury-d">live wallet snapshot</div>
       </div>
       <div class="stat-cell">
-        <div class="label">iNFTs minted (global)</div>
-        <div class="v"><span id="g-nfts">247</span></div>
-        <div class="delta">▲ +18 (24h)</div>
+        <div class="label">iNFTs minted</div>
+        <div class="v"><span id="g-nfts">0</span></div>
+        <div class="delta">from state.db</div>
       </div>
       <div class="stat-cell">
-        <div class="label">Active organisms</div>
-        <div class="v mint"><span id="g-orgs">38</span></div>
-        <div class="delta">▲ +3 deployed today</div>
+        <div class="label">Tracked organism</div>
+        <div class="v mint"><span id="g-orgs">1</span></div>
+        <div class="delta"><span id="g-agents">0</span> agents reporting</div>
       </div>
       <div class="stat-cell">
-        <div class="label">Strategies running</div>
-        <div class="v"><span id="g-strats">112</span></div>
-        <div class="delta">68 trading · 28 yield · 16 other</div>
+        <div class="label">Stored proofs</div>
+        <div class="v"><span id="g-strats">0</span></div>
+        <div class="delta">0G storage roots</div>
       </div>
     </div>
 
@@ -921,12 +955,12 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
 
       <div class="panel lb">
         <div class="panel-h">
-          <span class="label">Top-performing organisms</span>
-          <div class="right"><span>WINDOW · 7D</span><span style="color:var(--gold-2)">REFRESH · 30s</span></div>
+          <span class="label">Backend proof records</span>
+          <div class="right"><span>0G ROOTS</span><span style="color:var(--gold-2)">LIVE API</span></div>
         </div>
         <table>
           <thead><tr>
-            <th>#</th><th>Wallet</th><th>Growth</th><th>iNFTs</th><th>Last activity</th>
+            <th>#</th><th>Type</th><th>Agent</th><th>Artifact</th><th>Root hash</th>
           </tr></thead>
           <tbody id="lb-body"></tbody>
         </table>
@@ -934,7 +968,7 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
 
       <div class="panel feed">
         <div class="panel-h">
-          <span class="label">Global activity feed</span>
+          <span class="label">Backend activity feed</span>
           <div class="right"><span style="color:var(--mint-2)">● LIVE</span></div>
         </div>
         <div class="feed-body">
@@ -967,7 +1001,7 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
         <div class="field">
           <label>Treasury allocation</label>
           <div class="amt">
-            <input id="treasury-input" value="48.250000" />
+            <input id="treasury-input" value="0.000000" />
             <div class="toggle">
               <button class="on" data-tk="ETH">ETH</button>
               <button data-tk="USDC">USDC</button>
@@ -1072,7 +1106,7 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
           <ul>
             <li><span class="check">✓</span> Bridge healthy <span class="lat">v0.4.2 · 42ms</span></li>
             <li><span class="check">✓</span> AXL nodes peered <span class="lat">14 / 14</span></li>
-            <li><span class="check">✓</span> Treasury funded <span class="lat">48.25 ETH</span></li>
+            <li><span class="check">✓</span> Treasury snapshot <span class="lat" id="preflight-treasury">waiting</span></li>
             <li><span class="check">✓</span> KeeperHub authenticated <span class="lat">key 7f2b…01</span></li>
             <li><span class="check">✓</span> 0G storage write quota <span class="lat">96% free</span></li>
           </ul>
@@ -1090,7 +1124,7 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
 <section class="page" id="p-dashboard">
   <div class="wrap">
     <div class="page-head">
-      <div class="label gold crumb">Personal · Organism ATLAS-PRIME</div>
+      <div class="label gold crumb">Personal · Verified organism</div>
       <h1>Your <em>organism</em> at work.</h1>
       <p class="sub">Live view of the agents you deployed, the messages they exchange, and the wealth they're growing for you.</p>
     </div>
@@ -1106,7 +1140,7 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
       </div>
       <div class="cell">
         <div class="label">Treasury value</div>
-        <div class="v big" id="d-treasury">$163,920.71</div>
+        <div class="v big" id="d-treasury">0.000 ETH</div>
         <div class="sub">▲ +$2,187 (24h)</div>
       </div>
       <div class="cell">
@@ -1116,8 +1150,8 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
       </div>
       <div class="cell">
         <div class="label">Uptime</div>
-        <div class="v mint" id="d-uptime">14d 06h 42m</div>
-        <div class="sub">since 15 Apr 2026 · 07:41 UTC</div>
+        <div class="v mint" id="d-uptime">live</div>
+        <div class="sub">from backend state</div>
       </div>
     </div>
 
@@ -1130,8 +1164,8 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
           </div>
           <span class="badge spawn"><span class="d"></span>Spawning</span>
         </div>
-        <div class="task"><b>Current task:</b> dispatching <b>scout.delta-7</b> to scope memecoin liquidity edges · budget 0.5 ETH</div>
-        <div class="meta"><span>UPTIME <b>14d 06h 42m</b></span><span>SPAWNED <b>12 agents</b></span></div>
+        <div class="task"><b>Current task:</b> Waiting for backend state...</div>
+        <div class="meta"><span>STATUS <b>idle</b></span><span>SPAWNED <b>0</b></span></div>
       </div>
       <div class="agent-card">
         <div class="row">
@@ -1141,8 +1175,8 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
           </div>
           <span class="badge run"><span class="d"></span>Running</span>
         </div>
-        <div class="task"><b>Current task:</b> indexing 14,820 mempool rows · UNI/ETH · sentiment delta <b>+0.31σ</b></div>
-        <div class="meta"><span>UPTIME <b>14d 04h 11m</b></span><span>REPORTS <b>284</b></span></div>
+        <div class="task"><b>Current task:</b> Waiting for backend state...</div>
+        <div class="meta"><span>STATUS <b>idle</b></span><span>REPORTS <b>0</b></span></div>
       </div>
       <div class="agent-card">
         <div class="row">
@@ -1152,9 +1186,17 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
           </div>
           <span class="badge run"><span class="d"></span>Running</span>
         </div>
-        <div class="task"><b>Current task:</b> routing <b>12,400 USDC → ETH</b> via Uniswap v4 hook · slippage 0.04%</div>
-        <div class="meta"><span>UPTIME <b>13d 22h 56m</b></span><span>SETTLED <b>+18.42 ETH</b></span></div>
+        <div class="task"><b>Current task:</b> Waiting for backend state...</div>
+        <div class="meta"><span>STATUS <b>idle</b></span><span>SETTLED <b>0</b></span></div>
       </div>
+    </div>
+
+    <div class="panel live-activity">
+      <div class="panel-h">
+        <span class="label">Live agent activity</span>
+        <div class="right"><button class="demo-run-btn" id="demo-run-btn" type="button">Run proof cycle</button><span>STRUCTURED EVENTS</span><span style="color:var(--mint-2)">● LIVE</span></div>
+      </div>
+      <div class="activity-grid" id="activity-grid"></div>
     </div>
 
     <div class="panel feed axl-feed">
@@ -1172,7 +1214,7 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
       <div class="panel">
         <div class="panel-h">
           <span class="label">KeeperHub tasks</span>
-          <div class="right"><span>EXEC <b style="color:var(--mint-2)">348</b> / 412</span></div>
+          <div class="right" id="kh-summary"><span>WAITING FOR BACKEND</span></div>
         </div>
         <table class="kh-table">
           <thead><tr>
@@ -1185,7 +1227,7 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
       <div class="panel treas">
         <div class="label">Treasury balance</div>
         <div class="bal" id="t-bal">50.437 ETH</div>
-        <div class="usd"><span id="t-usd">$163,920.71</span> &nbsp;·&nbsp; <span class="delta">▲ +2.187 ETH (24h)</span></div>
+        <div class="usd"><span id="t-usd">—</span> &nbsp;·&nbsp; <span class="delta">live snapshot</span></div>
         <div class="spark">
           <svg viewBox="0 0 300 80" preserveAspectRatio="none">
             <defs>
@@ -1199,18 +1241,13 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
             <circle id="spark-dot" cx="0" cy="0" r="3" fill="#22c55e"/>
           </svg>
         </div>
-        <div class="swap-list">
-          <div class="label" style="margin-bottom:4px">Recent Uniswap swaps</div>
-          <div class="swap-item"><span class="pair">USDC → ETH</span><span class="amt">+3.812 ETH</span><span class="muted">2m</span></div>
-          <div class="swap-item"><span class="pair">ETH → USDC</span><span class="amt">+8,142 USDC</span><span class="muted">14m</span></div>
-          <div class="swap-item"><span class="pair">USDC → 0G</span><span class="amt">+412 0G</span><span class="muted">38m</span></div>
-        </div>
+        <div class="swap-list" id="proof-snapshot"></div>
       </div>
 
     </div>
 
     <div class="inft-summary">
-      <div class="l">Your intelligence: <b>7 iNFTs</b> · 3 active strategies · best <em>yield_farming_v3 (+31%)</em></div>
+      <div class="l" id="inft-summary-text">Your intelligence: <b>0 iNFTs</b> · verified by backend roots</div>
       <a class="lk" href="#">View on 0G explorer →</a>
     </div>
 
@@ -1257,112 +1294,84 @@ function tickClock(){
 }
 setInterval(tickClock,1000); tickClock();
 
-/* ================= GLOBAL TICKERS ================= */
-let gTreas = 8418902, gNfts = 247, gOrgs = 38, gStrats = 112;
-function tickGlobal(){
-  gTreas += Math.floor(Math.random()*1400);
-  $('#g-treasury').textContent = gTreas.toLocaleString();
-  if (Math.random() < .05){ gNfts++; $('#g-nfts').textContent = gNfts; }
-  if (Math.random() < .02){ gOrgs += (Math.random()<.5?1:-1); $('#g-orgs').textContent = gOrgs; }
-}
-setInterval(tickGlobal, 1500);
+/* ================= BACKEND PROOFS ================= */
+const storageScanUrl = hash => `https://storagescan-galileo.0g.ai/?q=${encodeURIComponent(hash)}`;
+const txScanUrl = tx => `https://chainscan-galileo.0g.ai/tx/${encodeURIComponent(tx)}`;
 
-/* ================= LEADERBOARD ================= */
-const LB = [
-  { rank:1, w:'0xae21…f4c9', g:'+47.2%', n:18, last:'2m' },
-  { rank:2, w:'0x13bd…7a01', g:'+38.6%', n:14, last:'4m' },
-  { rank:3, w:'0x9c4e…0b22', g:'+31.4%', n:12, last:'1m' },
-  { rank:4, w:'0x4f8a…d7e1', g:'+24.8%', n:11, last:'8m' },
-  { rank:5, w:'0xa1b2…3c4d', g:'+18.2%', n:7,  last:'just now', you:true },
-  { div:true, label:'⋯ 33 organisms ⋯' },
-  { rank:34, w:'0x2eb9…3d07', g:'-3.8%',  n:2, last:'1h', neg:true },
-  { rank:35, w:'0x81a7…b203', g:'-5.4%',  n:3, last:'2h', neg:true },
-  { rank:36, w:'0x6d40…29ac', g:'-7.1%',  n:1, last:'3h', neg:true },
-  { rank:37, w:'0xb017…fe88', g:'-9.6%',  n:2, last:'5h', neg:true },
-  { rank:38, w:'0x7f12…04a3', g:'-12.4%', n:0, last:'8h', neg:true },
-];
-$('#lb-body').innerHTML = LB.map(r=>{
-  if(r.div) return `<tr class="divider"><td colspan="5">${r.label}</td></tr>`;
-  const rkCls = r.rank<=3 ? 'gold' : '';
-  return `<tr>
-    <td class="rank ${rkCls}"><b>${pad(r.rank)}</b></td>
-    <td class="wallet">${r.w} <button class="copy" title="copy">⎘</button>${r.you?' <span class="label gold" style="font-size:9px">YOU</span>':''}</td>
-    <td class="growth ${r.neg?'neg':''}">${r.g}</td>
-    <td>${r.n}</td>
-    <td class="last">${r.last}</td>
-  </tr>`;
-}).join('');
+function shortHash(hash) {
+  if (!hash || hash.length < 16) return hash || '—';
+  return hash.slice(0, 10) + '…' + hash.slice(-8);
+}
+
+function proofHashLink(hash) {
+  if (!hash) return '<span class="muted">—</span>';
+  return `<a class="hash" href="${storageScanUrl(hash)}" target="_blank" rel="noopener" title="${escapeHtml(hash)}">${shortHash(hash)}</a>`;
+}
+
+function renderBackendProofs(storageRecords = [], infts = []) {
+  const tbody = document.getElementById('lb-body');
+  if (!tbody) return;
+  const rows = [
+    ...infts.slice(0, 6).map(n => ({
+      type: `iNFT #${n.token_id}`,
+      agent: n.agent_id || 'execution',
+      artifact: n.strategy_name || `version ${n.version || 1}`,
+      root_hash: n.root_hash,
+    })),
+    ...storageRecords.slice(0, 8).map(r => ({
+      type: '0G storage',
+      agent: r.agent_id,
+      artifact: r.filename,
+      root_hash: r.root_hash,
+    })),
+  ].slice(0, 12);
+
+  tbody.innerHTML = rows.length ? rows.map((r, i) => `<tr>
+    <td class="rank"><b>${pad(i + 1)}</b></td>
+    <td>${escapeHtml(r.type)}</td>
+    <td>${escapeHtml((r.agent || '').toUpperCase())}</td>
+    <td class="artifact" title="${escapeHtml(r.artifact || '')}">${escapeHtml(r.artifact || '—')}</td>
+    <td>${proofHashLink(r.root_hash)}</td>
+  </tr>`).join('') : '<tr class="divider"><td colspan="5">waiting for backend proof records</td></tr>';
+
+  const snap = document.getElementById('proof-snapshot');
+  if (snap) {
+    const latest = storageRecords.slice(0, 3);
+    snap.innerHTML = `<div class="label" style="margin-bottom:4px">Latest proof roots</div>` + (
+      latest.length ? latest.map(r => `<div class="swap-item">
+        <span class="pair">${escapeHtml(r.agent_id || 'agent')}</span>
+        <span class="amt">${proofHashLink(r.root_hash)}</span>
+        <span class="muted">${escapeHtml((r.filename || '').slice(0, 14))}</span>
+      </div>`).join('') : '<div class="swap-item"><span class="muted">Waiting for storage records</span></div>'
+    );
+  }
+}
 
 /* ================= GLOBAL FEED ================= */
-const ROLES = [
-  ['ORIGINATOR','orig'],['SPECIALIST','spec'],['EXECUTION','exec'],['BRIDGE','bridge']
-];
-const G_MSGS = [
-  ['ORIGINATOR','SPECIALIST','new opportunity {pair: UNI/ETH, conf: 0.82}'],
-  ['SPECIALIST','ORIGINATOR','report stored (root: 0x905d…e4)'],
-  ['EXECUTION','-','iNFT v3 minted · strategy yield_farming_v3'],
-  ['ORIGINATOR','EXECUTION','deploy {strategy: arb_uni_v2, cap: 4.2 ETH}'],
-  ['EXECUTION','-','swap settled +0.084 ETH realized'],
-  ['SPECIALIST','SPECIALIST','fork scout.delta-7 · scope memecoins'],
-  ['BRIDGE','EXECUTION','12,400 USDC eth→base · ETA 42s'],
-  ['ORIGINATOR','-','rebalance window opened · 55/22/13/10'],
-  ['SPECIALIST','ORIGINATOR','sentiment Δ +0.31σ · pair UNI/USDC'],
-  ['EXECUTION','-','iNFT v2 minted · strategy stable_carry_v2'],
-];
-const wallets = ['0xa1b2…','0xc3d4…','0xe5f6…','0xae21…','0x13bd…','0x9c4e…','0x4f8a…','0x2eb9…'];
 const gFeed = $('#global-feed');
 const MAX_FEED = 22;
 function tsNow(){
   const d = new Date();
   return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
 }
-function pushGlobalLine(){
-  const m = G_MSGS[Math.floor(Math.random()*G_MSGS.length)];
-  const w = wallets[Math.floor(Math.random()*wallets.length)];
-  const roleCls = m[0]==='ORIGINATOR'?'orig':m[0]==='SPECIALIST'?'spec':m[0]==='EXECUTION'?'exec':'bridge';
-  const line = document.createElement('div');
-  line.className = 'feed-line fade';
-  const arrow = m[1]!=='-' ? `<span class="arrow">→</span><span class="role ${m[1].toLowerCase().slice(0,4)}">${m[1]}</span>` : '';
-  line.innerHTML = `<span class="ts">[${tsNow()}]</span><span class="wallet">${w}</span><span class="role ${roleCls}">${m[0]}</span>${arrow}<span class="msg">: ${m[2]}</span>`;
-  gFeed.appendChild(line);
-  while(gFeed.children.length > MAX_FEED) gFeed.removeChild(gFeed.firstChild);
-  [...gFeed.children].forEach((el,i,arr)=>{
-    el.style.opacity = (0.3 + (i/(arr.length-1||1))*0.7).toFixed(2);
-  });
+function renderGlobalFeed(activityRows = []) {
+  if (!gFeed) return;
+  const rows = activityRows.slice(0, MAX_FEED);
+  gFeed.innerHTML = rows.length ? rows.reverse().map((row, i, arr) => {
+    const role = (row.agent_id || '').toUpperCase();
+    const roleCls = (row.agent_id || '').toLowerCase().slice(0, 4);
+    const ts = row.timestamp ? row.timestamp.slice(11, 19) : tsNow();
+    const opacity = (0.35 + (i / (arr.length - 1 || 1)) * 0.65).toFixed(2);
+    return `<div class="feed-line fade" style="opacity:${opacity}">
+      <span class="ts">[${ts}]</span>
+      <span class="role ${roleCls}">${escapeHtml(role)}</span>
+      <span class="msg">: ${activityIcon(row.kind)} ${escapeHtml(row.summary || '')}</span>
+    </div>`;
+  }).join('') : '<div class="feed-line"><span class="msg">Waiting for backend activity...</span></div>';
 }
-for(let i=0;i<14;i++) pushGlobalLine();
-setInterval(pushGlobalLine, 1100);
 
-/* ================= AXL FEED ================= */
-const AXL = [
-  ['ORIGINATOR','SPECIALIST','INSTRUCTION','{"opportunity":"DeFi Yield","scope":"UNI/ETH"}'],
-  ['SPECIALIST','ORIGINATOR','REPORT','{"root_hash":"0x905d…e4","conf":0.82}'],
-  ['ORIGINATOR','EXECUTION','DEPLOY','{"strategy":"yield_farming_v1","cap":"4.2 ETH"}'],
-  ['EXECUTION','ORIGINATOR','REPORT','{"tx":"0x4f8a…b29c","filled":"3.812 ETH"}'],
-  ['ORIGINATOR','SPECIALIST','RESEARCH','{"pair":"UNI/USDC","window":"4h"}'],
-  ['SPECIALIST','ORIGINATOR','REPORT','{"signal":"+0.31σ","conf":0.78}'],
-  ['ORIGINATOR','EXECUTION','DEPLOY','{"strategy":"arb_uni_v2","cap":"1.5 ETH"}'],
-  ['EXECUTION','-','REPORT','{"realized":"+0.084 ETH","slippage":0.04}'],
-];
 const axlFeed = $('#axl-feed');
 const MAX_AXL = 14;
-function pushAxl(){
-  const m = AXL[Math.floor(Math.random()*AXL.length)];
-  const fromCls = m[0].toLowerCase().slice(0,4);
-  const toCls = m[1]!=='-' ? m[1].toLowerCase().slice(0,4) : '';
-  const arrow = m[1]!=='-' ? `<span class="arrow">→</span><span class="role ${toCls}">${m[1]}</span>` : '<span class="arrow">▸</span>';
-  const payload = m[3].replace(/"([^"]+)":/g,'<span class="k">"$1"</span>:').replace(/:"([^"]*)"/g,':<span class="v">"$1"</span>');
-  const line = document.createElement('div');
-  line.className = 'axl-line fade';
-  line.innerHTML = `<span class="ts">[${tsNow()}]</span><span class="role ${fromCls}">${m[0]}</span>${arrow}<span class="type ${m[2]}">${m[2]}</span><span class="payload">${payload}</span>`;
-  axlFeed.appendChild(line);
-  while(axlFeed.children.length > MAX_AXL) axlFeed.removeChild(axlFeed.firstChild);
-  [...axlFeed.children].forEach((el,i,arr)=>{
-    el.style.opacity = (0.4 + (i/(arr.length-1||1))*0.6).toFixed(2);
-  });
-}
-for(let i=0;i<10;i++) pushAxl();
-setInterval(pushAxl, 1500);
 
 /* ================= TREASURY SPARKLINE ================= */
 let bal = 50.437;
@@ -1388,49 +1397,7 @@ function drawSpark(){
 drawSpark();
 // Treasury values are populated by renderTreasury() from /api/treasury — no fake animation.
 
-/* ================= UPTIME ================= */
-let uptimeBase = Date.now() - (14*86400 + 6*3600 + 42*60)*1000;
-function tickUptime(){
-  const sec = Math.floor((Date.now()-uptimeBase)/1000);
-  const d = Math.floor(sec/86400);
-  const h = Math.floor((sec%86400)/3600);
-  const m = Math.floor((sec%3600)/60);
-  $('#d-uptime').textContent = `${d}d ${pad(h)}h ${pad(m)}m`;
-}
-tickUptime(); setInterval(tickUptime, 1000);
-
-/* ================= iNFT GRID ================= */
-const STRATS = [
-  { n:'Yield Farming v3', a:'EXECUTION', d:'2026-04-21', root:'0x905d4e2c…7f2bd401', tx:'0x4f8a9c12…b29c0e7a', perf:'+31.4%', v:'v3', ts:'2 min ago' },
-  { n:'Atlas Mean Reversion', a:'EXECUTION', d:'2026-04-19', root:'0xb91a4e2c…7f2bd401', tx:'0x4f8a9c12…b29c0e7a', perf:'+24.7%', v:'v2', ts:'14 min ago' },
-  { n:'Delta Arb · UNI/ETH', a:'EXECUTION', d:'2026-04-18', root:'0xa18cd7e1…49bc23f0', tx:'0x91e40c12…d7100e7a', perf:'+18.2%', v:'v2', ts:'1 h ago' },
-  { n:'Stable Carry', a:'SPECIALIST', d:'2026-04-15', root:'0x7f2b0193…6ad8e2c1', tx:'0x2bdc4f8a…7f44b29c', perf:'+12.4%', v:'v1', ts:'3 h ago' },
-  { n:'L2 Bridge Flow Oracle', a:'SPECIALIST', d:'2026-04-13', root:'0xc4d20e91…f1a2b3c4', tx:'0x81a70c12…b203b29c', perf:'+8.9%', v:'v1', ts:'1 d ago' },
-  { n:'Memecoin Sentiment Index', a:'ORIGINATOR', d:'2026-04-10', root:'0x9d4e21ac…2b8c4e10', tx:'0x6d404f8a…29acb29c', perf:'-2.1%', v:'v1', ts:'4 d ago', neg:true },
-  { n:'Funding Rate Edge', a:'EXECUTION', d:'2026-04-08', root:'0x2eb9c4a1…8f3d0712', tx:'0xb0174f8a…fe88b29c', perf:'+15.6%', v:'v2', ts:'6 d ago' },
-];
-$('#inft-grid').innerHTML = STRATS.map(s=>`
-  <article class="inft">
-    <div class="body">
-      <div class="top">
-        <span class="badge">${s.v}</span>
-        <span class="agent">By ${s.a}</span>
-      </div>
-      <div class="name">${s.n}</div>
-      <div class="stats">
-        <div>
-          <div class="perf-l">Performance</div>
-          <div class="perf ${s.neg?'neg':''}">${s.perf}</div>
-        </div>
-        <div class="ts">Minted<br>${s.ts}</div>
-      </div>
-      <div class="links">
-        <div class="row"><span>ROOT_HASH</span><a href="#" title="View on 0G explorer">${s.root}</a></div>
-        <div class="row"><span>MINT TX</span><a href="#" title="View on chain">${s.tx}</a></div>
-      </div>
-    </div>
-  </article>
-`).join('');
+/* ================= BACKEND-ONLY iNFT GRID ================= */
 
 /* ================= INTERACTIONS ================= */
 $$('#chips .chip').forEach(c=>c.addEventListener('click',()=>c.classList.toggle('on')));
@@ -1455,6 +1422,50 @@ sl.dispatchEvent(new Event('input'));
 
 /* ================= API WIRING ================= */
 const API = (typeof window !== 'undefined' && window.MILIGENTS_API) || 'http://localhost:8081';
+const ACTIVITY_AGENTS = [
+  { id: 'originator', name: 'ORIGINATOR' },
+  { id: 'specialist', name: 'SPECIALIST' },
+  { id: 'execution', name: 'EXECUTION' },
+  { id: 'scheduler', name: 'SCHEDULER' },
+];
+const activityByAgent = Object.fromEntries(ACTIVITY_AGENTS.map(a => [a.id, []]));
+const latestActivitySeen = Object.fromEntries(ACTIVITY_AGENTS.map(a => [a.id, 0]));
+let agentStatusById = {};
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;',
+  }[ch]));
+}
+
+function relTime(iso) {
+  const time = new Date(iso).getTime();
+  if (!time) return 'just now';
+  const ms = Date.now() - time;
+  if (ms < 5000) return 'just now';
+  if (ms < 60000) return Math.floor(ms / 1000) + 's ago';
+  if (ms < 3600000) return Math.floor(ms / 60000) + 'm ago';
+  return Math.floor(ms / 3600000) + 'h ago';
+}
+
+function activityIcon(kind) {
+  return ({
+    cycle: '⏱',
+    task: '▶',
+    tool_call: '🔧',
+    tool_result: '✓',
+    axl_send: '📤',
+    axl_recv: '📥',
+    storage: '📦',
+    inft_mint: '🪪',
+    error: '⚠',
+    status: '●',
+  })[kind] || '•';
+}
 
 function agentStatusClass(status) {
   if (status === 'running') return 'run';
@@ -1471,6 +1482,7 @@ function agentBadgeLabel(status) {
 }
 
 function renderAgentCards(agents) {
+  agentStatusById = Object.fromEntries((agents || []).map(a => [a.agent_id, a.status || 'idle']));
   const names = { originator: 'Originator', specialist: 'Research Specialist', execution: 'Execution' };
   const layers = { originator: '1', specialist: '2', execution: '3' };
   const cards = ['originator', 'specialist', 'execution'].map(id => {
@@ -1495,6 +1507,87 @@ function renderAgentCards(agents) {
   });
   const row = document.querySelector('.agents-row');
   if (row) row.innerHTML = cards.join('');
+  renderActivityGrid();
+}
+
+function normaliseActivityPayload(payload) {
+  if (!payload) return {};
+  if (Array.isArray(payload)) {
+    return payload.reduce((acc, item) => {
+      const id = item.agent_id || 'scheduler';
+      if (!acc[id]) acc[id] = [];
+      acc[id].push(item);
+      return acc;
+    }, {});
+  }
+  return payload.agents || payload;
+}
+
+function renderActivity(payload, opts = {}) {
+  const grouped = normaliseActivityPayload(payload);
+  ACTIVITY_AGENTS.forEach(agent => {
+    const incoming = grouped[agent.id] || [];
+    if (!incoming.length && !opts.merge) {
+      activityByAgent[agent.id] = activityByAgent[agent.id] || [];
+      return;
+    }
+    if (opts.merge) {
+      const existing = new Map((activityByAgent[agent.id] || []).map(row => [row.id, row]));
+      incoming.forEach(row => existing.set(row.id, row));
+      activityByAgent[agent.id] = [...existing.values()]
+        .sort((a, b) => (b.id || 0) - (a.id || 0))
+        .slice(0, 15);
+    } else {
+      activityByAgent[agent.id] = incoming.slice(0, 15);
+    }
+    activityByAgent[agent.id].forEach(row => {
+      latestActivitySeen[agent.id] = Math.max(latestActivitySeen[agent.id] || 0, row.id || 0);
+    });
+  });
+  renderActivityGrid();
+}
+
+function renderActivityGrid() {
+  const grid = document.getElementById('activity-grid');
+  if (!grid) return;
+  const scrollPositions = {};
+  grid.querySelectorAll('.activity-feed').forEach(feed => {
+    scrollPositions[feed.dataset.agent] = {
+      top: feed.scrollTop,
+      pinned: feed.scrollTop <= 4,
+    };
+  });
+
+  grid.innerHTML = ACTIVITY_AGENTS.map(agent => {
+    const rows = activityByAgent[agent.id] || [];
+    const status = agentStatusById[agent.id] || 'idle';
+    const statusCls = status === 'running' ? 'running' : status === 'error' ? 'error' : status === 'complete' ? 'complete' : 'idle';
+    const body = rows.length ? rows.map(row => `
+      <div class="activity-row" data-id="${row.id || ''}">
+        <span class="ts" data-iso="${escapeHtml(row.timestamp)}">${relTime(row.timestamp)}</span>
+        <span class="msg"><span class="ico">${activityIcon(row.kind)}</span>${escapeHtml(row.summary || row.kind || '')}</span>
+      </div>
+    `).join('') : '<div class="activity-empty">Waiting for events...</div>';
+    return `<div class="activity-agent">
+      <div class="ah">
+        <div class="an">${agent.name}</div>
+        <div class="activity-status ${statusCls}"><span class="sd"></span>${status}</div>
+      </div>
+      <div class="activity-feed" data-agent="${agent.id}">${body}</div>
+    </div>`;
+  }).join('');
+
+  grid.querySelectorAll('.activity-feed').forEach(feed => {
+    const pos = scrollPositions[feed.dataset.agent];
+    if (!pos || pos.pinned) feed.scrollTop = 0;
+    else feed.scrollTop = pos.top;
+  });
+}
+
+function tickActivityTimes() {
+  document.querySelectorAll('.activity-row .ts[data-iso]').forEach(el => {
+    el.textContent = relTime(el.dataset.iso);
+  });
 }
 
 function renderAxlFeed(messages) {
@@ -1521,14 +1614,24 @@ function renderAxlFeed(messages) {
 function renderKeeperTasks(tasks) {
   const tbody = document.querySelector('.kh-table tbody');
   if (!tbody) return;
-  if (!tasks.length) return;
+  const summary = document.getElementById('kh-summary');
+  const total = tasks.length;
+  const complete = tasks.filter(t => ['complete', 'completed', 'success', 'created'].includes(t.status)).length;
+  const failed = tasks.filter(t => ['failed', 'error'].includes(t.status)).length;
+  if (summary) {
+    summary.innerHTML = `<span>ROWS <b style="color:var(--mint-2)">${total}</b></span><span>FAILED <b style="color:var(--coral-2)">${failed}</b></span>`;
+  }
+  if (!tasks.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="muted">No KeeperHub task records yet.</td></tr>';
+    return;
+  }
   tbody.innerHTML = tasks.slice(0, 8).map(t => {
-    const statusCls = t.status === 'complete' || t.status === 'created' ? 'exec' : t.status === 'running' ? 'exec' : 'pending';
+    const statusCls = ['complete', 'completed', 'success', 'created', 'running'].includes(t.status) ? 'exec' : ['failed', 'error'].includes(t.status) ? 'pending' : 'queued';
     const statusLabel = t.status || 'queued';
-    const txLink = t.tx_hash ? `<a class="tx" href="https://evmscan.0g.ai/tx/${t.tx_hash}" target="_blank">${t.tx_hash.slice(0,8)}…${t.tx_hash.slice(-4)}</a>` : '<span class="muted">—</span>';
-    const wfId = t.workflow_id ? t.workflow_id.slice(0, 8) : (t.execution_id || 'N/A').slice(0, 8);
+    const txLink = t.tx_hash ? `<a class="tx" href="${txScanUrl(t.tx_hash)}" target="_blank" rel="noopener">${t.tx_hash.slice(0,8)}…${t.tx_hash.slice(-4)}</a>` : '<span class="muted">—</span>';
+    const wfId = t.workflow_id || t.execution_id || `task-${t.id}`;
     return `<tr>
-      <td class="id">#${t.id}</td>
+      <td class="id" title="${escapeHtml(wfId)}">#${t.id}</td>
       <td class="type">${(t.task_type || 'TASK').toUpperCase()}</td>
       <td><span class="st ${statusCls}">● ${statusLabel}</span></td>
       <td>${txLink}</td>
@@ -1538,13 +1641,17 @@ function renderKeeperTasks(tasks) {
 
 function renderInftGrid(infts) {
   const grid = document.getElementById('inft-grid');
-  if (!grid || !infts.length) return;
+  if (!grid) return;
+  if (!infts.length) {
+    grid.innerHTML = '';
+    return;
+  }
   grid.innerHTML = infts.map(n => {
     const rootShort = n.root_hash ? n.root_hash.slice(0, 10) + '…' + n.root_hash.slice(-8) : '—';
     const txShort = n.mint_tx ? n.mint_tx.slice(0, 10) + '…' + n.mint_tx.slice(-8) : '—';
     const ts = n.minted_at ? new Date(n.minted_at).toLocaleTimeString() : '—';
-    const rootLink = n.root_hash ? `<a href="https://storagescan-newton.0g.ai/" target="_blank">${rootShort}</a>` : rootShort;
-    const txLink = n.mint_tx ? `<a href="https://evmscan.0g.ai/tx/${n.mint_tx}" target="_blank">${txShort}</a>` : txShort;
+    const rootLink = n.root_hash ? `<a href="${storageScanUrl(n.root_hash)}" target="_blank" rel="noopener" title="${n.root_hash}">${rootShort}</a>` : rootShort;
+    const txLink = n.mint_tx ? `<a href="${txScanUrl(n.mint_tx)}" target="_blank" rel="noopener" title="${n.mint_tx}">${txShort}</a>` : txShort;
     return `<article class="inft">
       <div class="body">
         <div class="top">
@@ -1594,6 +1701,9 @@ function renderTreasury(payload, history) {
   if (document.getElementById('t-usd')) document.getElementById('t-usd').textContent = usdVal || '—';
   if (document.getElementById('d-treasury')) document.getElementById('d-treasury').textContent = ethDisplay;
   if (document.getElementById('hero-treas')) document.getElementById('hero-treas').textContent = ethDisplay;
+  if (document.getElementById('g-treasury')) document.getElementById('g-treasury').textContent = ethDisplay;
+  if (document.getElementById('g-treasury-d')) document.getElementById('g-treasury-d').textContent = payload.wallet_address ? `${truncateAddr(payload.wallet_address)} · live` : 'live wallet snapshot';
+  if (document.getElementById('preflight-treasury')) document.getElementById('preflight-treasury').textContent = ethDisplay;
   if (history && history.length > 1) {
     const vals = history.map(h => parseFloat(h.eth_balance || 0));
     const W = 300, H = 80, P = 4;
@@ -1622,7 +1732,14 @@ function renderStats(payload) {
   if (!stats) return;
   if (document.getElementById('d-nfts')) document.getElementById('d-nfts').textContent = stats.inft_count || 0;
   if (document.getElementById('hero-nfts')) document.getElementById('hero-nfts').textContent = stats.inft_count || 0;
+  if (document.getElementById('hero-agents')) document.getElementById('hero-agents').textContent = stats.agent_count || 0;
   if (document.getElementById('g-nfts')) document.getElementById('g-nfts').textContent = stats.inft_count || 0;
+  if (document.getElementById('g-agents')) document.getElementById('g-agents').textContent = stats.agent_count || 0;
+  if (document.getElementById('g-orgs')) document.getElementById('g-orgs').textContent = (stats.agent_count || 0) > 0 ? 1 : 0;
+  if (document.getElementById('g-strats')) document.getElementById('g-strats').textContent = stats.storage_count || 0;
+  if (document.getElementById('inft-summary-text')) {
+    document.getElementById('inft-summary-text').innerHTML = `Your intelligence: <b>${stats.inft_count || 0} iNFTs</b> · ${stats.storage_count || 0} verified storage roots`;
+  }
 }
 
 function renderServices(services) {
@@ -1679,33 +1796,71 @@ function renderServices(services) {
 
 async function fetchAndRender() {
   try {
-    const [agents, axl, tasks, infts, treasury, history, stats, services] = await Promise.all([
+    const [agents, axl, tasks, infts, storage, treasury, history, stats, services, activity] = await Promise.all([
       fetch(`${API}/api/agents`).then(r => r.json()).catch(() => ({ agents: [] })),
       fetch(`${API}/api/axl?limit=14`).then(r => r.json()).catch(() => ({ messages: [] })),
       fetch(`${API}/api/tasks?limit=8`).then(r => r.json()).catch(() => ({ tasks: [] })),
       fetch(`${API}/api/infts?limit=9`).then(r => r.json()).catch(() => ({ infts: [] })),
+      fetch(`${API}/api/storage?limit=20`).then(r => r.json()).catch(() => ({ records: [] })),
       fetch(`${API}/api/treasury`).then(r => r.json()).catch(() => ({ treasury: null })),
       fetch(`${API}/api/treasury/history?limit=60`).then(r => r.json()).catch(() => ({ history: [] })),
       fetch(`${API}/api/stats`).then(r => r.json()).catch(() => ({ stats: null })),
       fetch(`${API}/api/services`).then(r => r.json()).catch(() => null),
+      fetch(`${API}/api/activity/grouped?limit_per_agent=15`).then(r => r.json()).catch(() => ({ agents: {} })),
     ]);
     if (agents.agents && agents.agents.length) renderAgentCards(agents.agents);
     if (axl.messages && axl.messages.length) renderAxlFeed(axl.messages);
-    if (tasks.tasks && tasks.tasks.length) renderKeeperTasks(tasks.tasks);
+    renderKeeperTasks(tasks.tasks || []);
     if (infts.infts && infts.infts.length) renderInftGrid(infts.infts);
+    renderBackendProofs(storage.records || [], infts.infts || []);
     renderTreasury(treasury, history.history || []);
     renderStats(stats);
     if (services) renderServices(services);
+    if (activity && activity.agents) {
+      renderActivity(activity);
+      renderGlobalFeed(Object.values(activity.agents).flat().sort((a, b) => (b.id || 0) - (a.id || 0)));
+    }
   } catch (e) {
-    console.warn('[MiliGents] API not reachable — running on mock data', e);
+    console.warn('[MiliGents] API not reachable — waiting for backend data', e);
   }
 }
+
+async function triggerDemoRun() {
+  const btn = document.getElementById('demo-run-btn');
+  if (!btn) return;
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+  try {
+    const res = await fetch(`${API}/api/demo/run`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.status === 'error') {
+      console.warn('[MiliGents] Demo proof cycle failed', data);
+      btn.textContent = 'Failed';
+      setTimeout(() => { btn.textContent = original; }, 1800);
+      return;
+    }
+    btn.textContent = data.mint_tx ? 'Minted' : 'Stored';
+    await fetchAndRender();
+    setTimeout(() => { btn.textContent = original; }, 1800);
+  } catch (e) {
+    console.warn('[MiliGents] Demo proof cycle unreachable', e);
+    btn.textContent = 'Offline';
+    setTimeout(() => { btn.textContent = original; }, 1800);
+  } finally {
+    setTimeout(() => { btn.disabled = false; }, 1800);
+  }
+}
+
+const demoRunBtn = document.getElementById('demo-run-btn');
+if (demoRunBtn) demoRunBtn.addEventListener('click', triggerDemoRun);
 
 /* Initial fetch */
 fetchAndRender();
 
 /* Poll every 5s as fallback */
 setInterval(fetchAndRender, 5000);
+setInterval(tickActivityTimes, 1000);
 
 /* WebSocket live feed */
 (function connectWS() {
@@ -1718,10 +1873,15 @@ setInterval(fetchAndRender, 5000);
         const data = JSON.parse(e.data);
         if (data.agents && data.agents.length) renderAgentCards(data.agents);
         if (data.axl && data.axl.length) renderAxlFeed(data.axl);
-        if (data.tasks && data.tasks.length) renderKeeperTasks(data.tasks);
+        if (data.tasks) renderKeeperTasks(data.tasks);
         if (data.infts && data.infts.length) renderInftGrid(data.infts);
         if (data.treasury) renderTreasury(data.treasury, []);
         if (data.stats) renderStats(data.stats);
+        if (data.activity && data.activity.length) {
+          const fresh = data.activity.filter(row => (row.id || 0) > (latestActivitySeen[row.agent_id] || 0));
+          if (fresh.length) renderActivity(fresh, { merge: true });
+          renderGlobalFeed(data.activity.sort((a, b) => (b.id || 0) - (a.id || 0)));
+        }
       } catch (err) {}
     };
     ws.onclose = () => setTimeout(connectWS, 4000);

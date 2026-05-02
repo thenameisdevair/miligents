@@ -273,3 +273,57 @@ def get_cycles(limit: int = 20) -> list:
     ).fetchall()
     conn.close()
     return _rows_to_list(rows)
+
+
+# ─── Activity ─────────────────────────────────────────────────────────────────
+
+def get_activity(
+    agent_id: str = None,
+    cycle_id: str = None,
+    limit: int = 30,
+) -> list:
+    """
+    Get most recent live activity events.
+
+    Args:
+        agent_id: Optional agent filter.
+        cycle_id: Optional scheduler cycle filter.
+        limit: Max rows to return.
+
+    Returns:
+        List of activity rows ordered newest first.
+    """
+    conn = _get_conn()
+    if not conn:
+        return []
+
+    limit = max(1, min(int(limit or 30), 200))
+    clauses = []
+    params = []
+    if agent_id:
+        clauses.append("agent_id = ?")
+        params.append(agent_id)
+    if cycle_id:
+        clauses.append("cycle_id = ?")
+        params.append(cycle_id)
+
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    params.append(limit)
+
+    try:
+        rows = conn.execute(
+            f"SELECT * FROM activity {where} ORDER BY timestamp DESC, id DESC LIMIT ?",
+            params,
+        ).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    conn.close()
+
+    results = _rows_to_list(rows)
+    for r in results:
+        if r.get("details"):
+            try:
+                r["details"] = json.loads(r["details"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+    return results

@@ -30,6 +30,8 @@ services:
     expose:
       - "8001"
     environment:
+      - STATE_DIR=/app/state
+      - AXL_AGENT_ID=originator
       - BRIDGE_URL=http://bridge:3100
       - AXL_API_PORT=9002
       - SPECIALIST_PUBKEY=${SPECIALIST_PUBKEY:-}
@@ -54,6 +56,8 @@ services:
     expose:
       - "8002"
     environment:
+      - STATE_DIR=/app/state
+      - AXL_AGENT_ID=specialist
       - BRIDGE_URL=http://bridge:3100
       - AXL_API_PORT=9002
       - SPECIALIST_DOMAIN=${SPECIALIST_DOMAIN:-agentic trading}
@@ -77,6 +81,8 @@ services:
     expose:
       - "8003"
     environment:
+      - STATE_DIR=/app/state
+      - AXL_AGENT_ID=execution
       - BRIDGE_URL=http://bridge:3100
       - AXL_API_PORT=9002
       - EXECUTION_STRATEGY=${EXECUTION_STRATEGY:-agentic trading}

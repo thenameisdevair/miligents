@@ -88,8 +88,8 @@ app.post("/inft/mint", async (req, res) => {
             res.status(400).json({ error: "root_hash and metadata are required" });
             return;
         }
-        const token_id = await (0, inft_1.mintINFT)(root_hash, metadata);
-        res.json({ token_id });
+        const minted = await (0, inft_1.mintINFT)(root_hash, metadata);
+        res.json(minted);
     }
     catch (err) {
         console.error("[Bridge] /inft/mint error:", err.message);

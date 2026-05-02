@@ -248,6 +248,14 @@ To keep the UI feeling alive, run a 1-second `setInterval` that re-renders only 
 5. **Frontend JS** — `renderActivity`, polling integration, WebSocket integration, 1s ticker for timestamps.
 6. **Verification** — rebuild api + 3 agents + scheduler, run one cycle, screenshot the dashboard with all four columns alive.
 
+Verification command after services are running:
+
+```bash
+python3 scripts/verify_phase_3_5.py --api http://localhost:8081 --fresh-seconds 300
+```
+
+The verifier checks `/api/activity/grouped`, confirms all four lanes have fresh events, samples `/api/activity`, and warns if AXL/storage/iNFT records are not visible yet.
+
 Each commit must be self-contained and leave the system runnable. After step 1 the schema migrates safely (CREATE TABLE IF NOT EXISTS). After step 2 the table starts filling but no UI exists. After step 5 the UI appears.
 
 ---

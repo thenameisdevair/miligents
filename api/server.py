@@ -24,6 +24,7 @@ Endpoints:
 """
 
 import asyncio
+import json
 import os
 import requests
 from datetime import datetime, timezone
@@ -49,8 +50,21 @@ from api.db import (
     get_treasury_history,
     get_summary_stats,
     get_cycles,
+    get_activity,
 )
-from integrations.state_writer import write_treasury_snapshot
+from integrations.bridge_client import upload_data, mint_inft
+from integrations.state_writer import (
+    write_activity,
+    write_agent_status,
+    write_axl_message,
+    write_cycle_complete,
+    write_cycle_start,
+    write_inft,
+    write_storage_record,
+    write_treasury_snapshot,
+    set_current_cycle,
+    clear_current_cycle,
+)
 from integrations.wallet import get_eth_balance
 
 app = FastAPI(title="MiliGents API", version="1.0.0")
@@ -196,6 +210,132 @@ def cycles(limit: int = 20):
     return {"cycles": get_cycles(limit=limit)}
 
 
+# ─── Activity ─────────────────────────────────────────────────────────────────
+
+@app.get("/api/activity")
+def activity(agent_id: str = None, cycle_id: str = None, limit: int = 30):
+    return {
+        "activity": get_activity(
+            agent_id=agent_id,
+            cycle_id=cycle_id,
+            limit=limit,
+        )
+    }
+
+
+@app.get("/api/activity/grouped")
+def activity_grouped(limit_per_agent: int = 15):
+    limit_per_agent = max(1, min(int(limit_per_agent or 15), 50))
+    agents = ["originator", "specialist", "execution", "scheduler"]
+    return {
+        "agents": {
+            agent_id: get_activity(agent_id=agent_id, limit=limit_per_agent)
+            for agent_id in agents
+        }
+    }
+
+
+# ─── Demo Proof Cycle ─────────────────────────────────────────────────────────
+
+@app.post("/api/demo/run")
+def demo_run():
+    """
+    Run a compact proof cycle for demos.
+
+    This avoids long CrewAI context windows while still using the real bridge:
+    it uploads a strategy proof to 0G Storage, mints an iNFT, stores root/tx
+    state, and emits activity for all dashboard lanes.
+    """
+    cycle_id = f"demo_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    set_current_cycle(cycle_id)
+    write_cycle_start(cycle_id)
+    write_activity("scheduler", "cycle", f"started {cycle_id}", cycle_id=cycle_id)
+
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        write_agent_status("originator", "running", current_task="Preparing demo proof strategy")
+        write_activity("originator", "task", "selected compact proof strategy", cycle_id=cycle_id)
+
+        strategy = {
+            "name": "Demo Proof Strategy",
+            "created_at": now,
+            "summary": "Compact strategy proof generated for the MiliGents live dashboard.",
+            "steps": [
+                "store strategy proof on 0G Storage",
+                "mint strategy as iNFT",
+                "surface root hash and mint tx in dashboard",
+            ],
+        }
+        filename = f"demo_proof_strategy_{cycle_id}.json"
+
+        write_agent_status("specialist", "running", current_task="Writing compact strategy report")
+        write_activity("specialist", "task", "prepared storage proof payload", cycle_id=cycle_id)
+        root_hash = upload_data(json.dumps(strategy, indent=2), filename)
+        write_storage_record("specialist", filename, root_hash)
+
+        write_axl_message("specialist", "execution", "REPORT", {
+            "summary": strategy["summary"],
+            "root_hash": root_hash,
+            "status": "complete",
+            "cycle_id": cycle_id,
+        })
+
+        write_agent_status("execution", "running", current_task="Minting demo iNFT proof")
+        write_activity("execution", "task", "minting demo proof iNFT", cycle_id=cycle_id)
+        minted = mint_inft(root_hash, {
+            "agent": "execution",
+            "version": 1,
+            "type": "demo_proof_strategy",
+            "cycle_id": cycle_id,
+        })
+        token_id = str(minted["token_id"])
+        mint_tx = minted.get("mint_tx")
+
+        write_inft(
+            agent_id="execution",
+            token_id=token_id,
+            root_hash=root_hash,
+            strategy_name=filename,
+            version=1,
+            mint_tx=mint_tx,
+        )
+        write_axl_message("execution", "originator", "STATUS", {
+            "status": "completed",
+            "token_id": token_id,
+            "root_hash": root_hash,
+            "mint_tx": mint_tx,
+            "cycle_id": cycle_id,
+        })
+
+        write_agent_status("originator", "complete", current_task="Demo proof complete")
+        write_agent_status("specialist", "complete", current_task="Demo report stored")
+        write_agent_status("execution", "complete", current_task=f"Minted iNFT token {token_id}")
+        write_activity("scheduler", "cycle", f"finished {cycle_id} (complete)", cycle_id=cycle_id)
+        write_cycle_complete(
+            cycle_id,
+            status="complete",
+            originator_status="complete",
+            specialist_status="complete",
+            execution_status="complete",
+        )
+
+        return {
+            "status": "complete",
+            "cycle_id": cycle_id,
+            "root_hash": root_hash,
+            "token_id": token_id,
+            "mint_tx": mint_tx,
+        }
+    except Exception as e:
+        err = str(e)
+        write_activity("scheduler", "error", f"demo proof failed: {err[:100]}", cycle_id=cycle_id)
+        write_cycle_complete(cycle_id, status="error")
+        write_agent_status("execution", "error", result=err)
+        return {"status": "error", "cycle_id": cycle_id, "error": err}
+    finally:
+        clear_current_cycle()
+
+
 # ─── Scheduler Control ────────────────────────────────────────────────────────
 
 @app.post("/api/scheduler/pause")
@@ -279,6 +419,7 @@ async def feed(websocket: WebSocket):
                 "infts": get_infts(limit=5),
                 "treasury": get_latest_treasury(),
                 "stats": get_summary_stats(),
+                "activity": get_activity(limit=40),
             }
             await manager.broadcast(payload)
             await asyncio.sleep(3)

@@ -87,7 +87,7 @@ def download_data(root_hash: str) -> str:
         raise RuntimeError(f"Bridge download failed: {e}")
 
 
-def mint_inft(root_hash: str, metadata: dict) -> str:
+def mint_inft(root_hash: str, metadata: dict) -> dict:
     """
     Mint a new iNFT on 0G Chain via the bridge.
     Call this when an agent produces a new strategy version.
@@ -97,7 +97,7 @@ def mint_inft(root_hash: str, metadata: dict) -> str:
         metadata: Strategy metadata dict (agent name, version, etc).
 
     Returns:
-        token_id: On-chain token ID as string.
+        Dict with token_id and mint_tx.
 
     Raises:
         RuntimeError: If minting fails.
@@ -110,7 +110,11 @@ def mint_inft(root_hash: str, metadata: dict) -> str:
             timeout=TIMEOUT
         )
         response.raise_for_status()
-        return response.json()["token_id"]
+        data = response.json()
+        return {
+            "token_id": str(data["token_id"]),
+            "mint_tx": data.get("mint_tx") or data.get("tx_hash"),
+        }
     except requests.RequestException as e:
         raise RuntimeError(f"Bridge iNFT mint failed: {e}")
 

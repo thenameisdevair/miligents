@@ -47,13 +47,13 @@ def run():
     check_dependencies()
 
     agent = create_execution_agent()
-    tasks = create_tasks(strategy=strategy)
+    tasks = create_tasks(strategy=strategy, agent=agent)
 
     crew = Crew(
         agents=[agent],
         tasks=tasks,
         process=Process.sequential,
-        verbose=True
+        verbose=False
     )
 
     def handle_shutdown(sig, frame):

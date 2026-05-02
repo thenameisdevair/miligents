@@ -27,12 +27,12 @@ function getContract(): ethers.Contract {
  * Mint a new iNFT representing an agent strategy version.
  * @param rootHash - 0G Storage root hash of the strategy data
  * @param metadata - Strategy metadata object
- * @returns token_id as string
+ * @returns token_id and transaction hash
  */
 export async function mintINFT(
   rootHash: string,
   metadata: object
-): Promise<string> {
+): Promise<{ token_id: string; mint_tx: string }> {
   const contract = getContract();
   const signer = new ethers.Wallet(
     PRIVATE_KEY,
@@ -57,8 +57,8 @@ export async function mintINFT(
       const parsed = iface.parseLog(log);
       if (parsed?.name === "INFTMinted") {
         const tokenId = parsed.args.tokenId.toString();
-        console.log(`[iNFT] Minted token ID: ${tokenId} → root hash: ${rootHash}`);
-        return tokenId;
+        console.log(`[iNFT] Minted token ID: ${tokenId} → root hash: ${rootHash} tx: ${tx.hash}`);
+        return { token_id: tokenId, mint_tx: tx.hash };
       }
     } catch {}
   }
