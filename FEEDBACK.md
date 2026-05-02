@@ -28,6 +28,12 @@
 - Tool calls succeed once session lifecycle is understood
 - Workflow listing and AI generation both work
 - Health endpoint responds correctly
+- Direct execution works once a KeeperHub organization wallet is configured
+- Policy-gated Sepolia transfer completed successfully through MiliGents:
+  execution_id `ri3wnfnrqwbna325ttdsy`, tx
+  `0x3722074f89b6159feb53dc1a2a88dd9a768300a90d0f466616b1aa0f06b2b34d`
+- `get_direct_execution_status` returned transaction hash, explorer link,
+  gas used, gas price, retry count, network, and completion timestamps
 
 ### What was confusing
 - The /message endpoint returns "Accepted" not the tool result
@@ -35,15 +41,30 @@
 - This SSE response pattern is not documented clearly in the repo README
 - The sessionId must be used while the SSE connection is still open
   — closing the connection before sending the message causes 404
+- Direct execution initially failed with
+  `WALLET_NOT_CONFIGURED`, which was accurate but easy to miss as a
+  prerequisite. A KeeperHub organization wallet must be created in Settings
+  before transfers or contract calls can execute.
+- The local MCP package exposed direct-execution tools, but if the API returns
+  an error in the text payload, clients must treat `isError` or `Error:` text
+  as a failed call. Otherwise it is easy to accidentally record an empty
+  execution_id as "submitted".
 
 ### What is missing from docs
 - No clear example of the full SSE → POST → SSE response cycle
 - No Python client example — only Claude Code config shown
 - The session lifecycle (session dies when SSE closes) is not mentioned
+- Direct execution docs should put the organization-wallet prerequisite near
+  the first transfer example.
+- Response-shape examples should include both success and error payloads for
+  MCP tool calls, especially the `isError` text-content case.
 
 ### Suggested improvement
 - Add a Python example showing the correct SSE session flow
 - Document that tool responses arrive via SSE stream, not HTTP response
+- Add a minimal direct-transfer quickstart:
+  create org wallet → fund Sepolia → call `execute_transfer` →
+  poll `get_direct_execution_status`.
 
 
 ## Uniswap

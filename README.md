@@ -30,8 +30,9 @@ No human intervention required after deployment.
 |--------|-------------|
 | 0G Storage upload | [0x0493...832b](https://chainscan-galileo.0g.ai/tx/0x04936ebada3fc6ff01edb9357d45c5d8d6e0051eb3e08eb2f5e9f147f277832b) |
 | iNFT mint (ERC-7857) | [0x3170...0b26c](https://chainscan-galileo.0g.ai/tx/0x317088ea29acdcdfd6d8f9f20a7a4e3e27616a969b5f209090dbf9155bc0b26c) |
+| KeeperHub execution | [0x3722...b34d](https://sepolia.etherscan.io/tx/0x3722074f89b6159feb53dc1a2a88dd9a768300a90d0f466616b1aa0f06b2b34d) |
 
-Network: 0G Galileo Testnet
+Networks: 0G Galileo Testnet, Sepolia
 
 ---
 
@@ -94,9 +95,11 @@ All intelligence is stored on 0G Storage and minted as ERC-7857 iNFTs.
 - Execution agent connects to KeeperHub MCP server via SSE transport
 - Creates workflows via `ai_generate_workflow` (natural language → workflow)
 - Executes workflows via `execute_workflow` and polls `get_execution_status`
+- Executes policy-gated direct transfers via KeeperHub Direct Execution
 - All on-chain agent actions go through KeeperHub for guaranteed execution
 - Live transfer/contract-call writes are blocked by default by `integrations/execution_policy.py`
 - Enable live writes only after setting network, value, contract, and function allowlists
+- Confirmed Sepolia tx: [0x3722...b34d](https://sepolia.etherscan.io/tx/0x3722074f89b6159feb53dc1a2a88dd9a768300a90d0f466616b1aa0f06b2b34d)
 - Integration: `integrations/keeperhub.py`
 - Feedback: `FEEDBACK.md`
 
