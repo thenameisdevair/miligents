@@ -20,7 +20,10 @@ import os
 import queue
 import threading
 import requests
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:
+    load_dotenv = None
 from integrations.execution_policy import (
     PolicyViolation,
     validate_contract_call,
@@ -28,7 +31,8 @@ from integrations.execution_policy import (
 )
 from integrations.state_writer import write_activity
 
-load_dotenv()
+if load_dotenv:
+    load_dotenv()
 
 KEEPERHUB_MCP_URL = os.getenv("KEEPERHUB_MCP_URL", "http://localhost:3001")
 KEEPERHUB_MCP_API_KEY = os.getenv("KEEPERHUB_MCP_API_KEY", "miligents_local")
@@ -244,6 +248,22 @@ def get_execution_status(execution_id: str) -> dict:
     return result
 
 
+def get_direct_execution_status(execution_id: str) -> dict:
+    """
+    Get status for a KeeperHub direct execution.
+
+    Args:
+        execution_id: Direct execution ID returned by execute_transfer or
+            execute_contract_call.
+
+    Returns:
+        Dict with status, transactionHash/transactionLink, result, and error.
+    """
+    return _call_tool("get_direct_execution_status", {
+        "execution_id": execution_id
+    })
+
+
 def _record_policy_block(action: str, error: Exception) -> None:
     write_activity("execution", "error", f"keeperhub {action} blocked: {str(error)[:90]}", {
         "action": action,
@@ -289,7 +309,7 @@ def execute_transfer(
         raise PolicyViolation("ERC-20 transfers must provide token_address")
 
     result = _call_tool("execute_transfer", payload)
-    execution_id = result.get("executionId") or result.get("id", "")
+    execution_id = result.get("executionId") or result.get("execution_id") or result.get("id", "")
     print(f"[KeeperHub] Transfer execution: {execution_id}")
     return execution_id
 
@@ -338,7 +358,7 @@ def execute_contract_call(
         payload["gas_limit_multiplier"] = str(gas_limit_multiplier)
 
     result = _call_tool("execute_contract_call", payload)
-    execution_id = result.get("executionId") or result.get("id", "")
+    execution_id = result.get("executionId") or result.get("execution_id") or result.get("id", "")
     print(f"[KeeperHub] Contract call execution: {execution_id}")
     return execution_id
 

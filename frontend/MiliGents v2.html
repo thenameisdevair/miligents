@@ -1214,7 +1214,7 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
       <div class="panel">
         <div class="panel-h">
           <span class="label">KeeperHub tasks</span>
-          <div class="right" id="kh-summary"><span>WAITING FOR BACKEND</span></div>
+          <div class="right"><button class="demo-run-btn" id="kh-transfer-btn" type="button">Sepolia test tx</button><span id="kh-summary">WAITING FOR BACKEND</span></div>
         </div>
         <table class="kh-table">
           <thead><tr>
@@ -1621,7 +1621,7 @@ function renderKeeperTasks(tasks, policy = null) {
   if (summary) {
     const policyLabel = policy ? (policy.live_execution ? 'LIVE' : 'LOCKED') : 'POLICY';
     const policyColor = policy && policy.live_execution ? 'var(--coral-2)' : 'var(--mint-2)';
-    summary.innerHTML = `<span>${policyLabel} <b style="color:${policyColor}">${policy && policy.live_execution ? 'ON' : 'SAFE'}</b></span><span>ROWS <b style="color:var(--mint-2)">${total}</b></span><span>FAILED <b style="color:var(--coral-2)">${failed}</b></span>`;
+    summary.innerHTML = `${policyLabel} <b style="color:${policyColor}">${policy && policy.live_execution ? 'ON' : 'SAFE'}</b> · ROWS <b style="color:var(--mint-2)">${total}</b> · FAILED <b style="color:var(--coral-2)">${failed}</b>`;
   }
   if (!tasks.length) {
     tbody.innerHTML = '<tr><td colspan="4" class="muted">No KeeperHub task records yet.</td></tr>';
@@ -1857,6 +1857,36 @@ async function triggerDemoRun() {
 
 const demoRunBtn = document.getElementById('demo-run-btn');
 if (demoRunBtn) demoRunBtn.addEventListener('click', triggerDemoRun);
+
+async function triggerKeeperHubTestTransfer() {
+  const btn = document.getElementById('kh-transfer-btn');
+  if (!btn) return;
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Submitting...';
+  try {
+    const res = await fetch(`${API}/api/keeperhub/test-transfer?network=sepolia`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.status === 'error' || data.status === 'failed') {
+      console.warn('[MiliGents] KeeperHub test transfer failed', data);
+      btn.textContent = data.error && data.error.includes('KEEPERHUB_LIVE_EXECUTION') ? 'Locked' : 'Failed';
+      setTimeout(() => { btn.textContent = original; }, 2200);
+      return;
+    }
+    btn.textContent = data.tx_hash ? 'Tx ready' : 'Submitted';
+    await fetchAndRender();
+    setTimeout(() => { btn.textContent = original; }, 2200);
+  } catch (e) {
+    console.warn('[MiliGents] KeeperHub test transfer unreachable', e);
+    btn.textContent = 'Offline';
+    setTimeout(() => { btn.textContent = original; }, 2200);
+  } finally {
+    setTimeout(() => { btn.disabled = false; }, 2200);
+  }
+}
+
+const khTransferBtn = document.getElementById('kh-transfer-btn');
+if (khTransferBtn) khTransferBtn.addEventListener('click', triggerKeeperHubTestTransfer);
 
 /* Initial fetch */
 fetchAndRender();

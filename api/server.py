@@ -26,6 +26,7 @@ Endpoints:
 import asyncio
 import json
 import os
+import time
 import requests
 from datetime import datetime, timezone
 
@@ -54,6 +55,7 @@ from api.db import (
 )
 from integrations.bridge_client import upload_data, mint_inft
 from integrations.execution_policy import get_policy
+from integrations.keeperhub import execute_transfer, get_direct_execution_status
 from integrations.state_writer import (
     write_activity,
     write_agent_status,
@@ -62,6 +64,7 @@ from integrations.state_writer import (
     write_cycle_start,
     write_inft,
     write_storage_record,
+    write_keeperhub_task,
     write_treasury_snapshot,
     set_current_cycle,
     clear_current_cycle,
@@ -146,6 +149,85 @@ def execution_policy():
             "mainnet_confirmed": policy.mainnet_confirmed,
         }
     }
+
+
+@app.post("/api/keeperhub/test-transfer")
+def keeperhub_test_transfer(network: str = "sepolia", amount: str = None, to: str = None):
+    """
+    Trigger a tiny KeeperHub direct transfer for controlled verification.
+
+    Policy gates still apply. By default this is blocked until
+    KEEPERHUB_LIVE_EXECUTION=true and the selected network is allowed.
+    """
+    recipient = to or os.getenv("WALLET_ADDRESS")
+    amount = amount or os.getenv("KEEPERHUB_TEST_TRANSFER_ETH", "0.00001")
+    if not recipient:
+        return {"status": "error", "error": "WALLET_ADDRESS or to is required"}
+
+    try:
+        write_activity("execution", "tool_call", f"keeperhub test transfer on {network}")
+        execution_id = execute_transfer(
+            to=recipient,
+            amount=amount,
+            token="ETH",
+            network=network,
+        )
+        write_keeperhub_task(
+            agent_id="execution",
+            execution_id=execution_id,
+            task_type=f"direct_transfer_{network}",
+            status="running",
+        )
+
+        status = {"status": "submitted"}
+        for _ in range(8):
+            try:
+                status = get_direct_execution_status(execution_id)
+            except Exception as e:
+                status = {"status": "submitted", "poll_error": str(e)}
+            if status.get("status") in ("completed", "failed"):
+                break
+            time.sleep(3)
+
+        tx_hash = status.get("transactionHash") or status.get("tx_hash")
+        task_status = status.get("status", "submitted")
+        write_keeperhub_task(
+            agent_id="execution",
+            execution_id=execution_id,
+            task_type=f"direct_transfer_{network}",
+            status=task_status,
+            tx_hash=tx_hash,
+        )
+        if tx_hash:
+            write_activity("execution", "tool_result", f"keeperhub transfer tx {tx_hash[:10]}...")
+        else:
+            write_activity("execution", "tool_result", f"keeperhub transfer status {task_status}")
+
+        return {
+            "status": task_status,
+            "network": network,
+            "amount": amount,
+            "recipient": recipient,
+            "execution_id": execution_id,
+            "tx_hash": tx_hash,
+            "transaction_link": status.get("transactionLink"),
+            "keeperhub_status": status,
+        }
+    except Exception as e:
+        err = str(e)
+        write_keeperhub_task(
+            agent_id="execution",
+            task_type=f"direct_transfer_{network}",
+            status="blocked" if "KEEPERHUB_" in err or "allowed" in err else "failed",
+        )
+        write_activity("execution", "error", f"keeperhub test transfer failed: {err[:100]}")
+        return {
+            "status": "error",
+            "network": network,
+            "amount": amount,
+            "recipient": recipient,
+            "error": err,
+        }
 
 
 # ─── iNFTs ────────────────────────────────────────────────────────────────────

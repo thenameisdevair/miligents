@@ -186,6 +186,7 @@ KEEPERHUB_ALLOWED_CONTRACTS=
 KEEPERHUB_ALLOWED_FUNCTIONS=
 KEEPERHUB_ALLOW_APPROVALS=false
 KEEPERHUB_MAINNET_CONFIRMED=false
+KEEPERHUB_TEST_TRANSFER_ETH=0.00001
 UNISWAP_API_KEY=          # Uniswap Trading API key
 ```
 
@@ -193,6 +194,9 @@ KeeperHub safety defaults are deny-by-default. For a Sepolia write test, set
 `KEEPERHUB_LIVE_EXECUTION=true` plus the exact contract/function allowlist.
 For Base or other live networks, also set `KEEPERHUB_MAINNET_CONFIRMED=true`
 after funding the KeeperHub wallet with a small capped amount.
+In production, set these as platform/container secrets, not committed files.
+Keep staging and production policies separate so mainnet is only armed in the
+environment that is meant to run live.
 
 ### 3. Build and run
 
