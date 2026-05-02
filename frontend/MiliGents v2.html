@@ -1619,6 +1619,15 @@ function collectOrganismPayload() {
   };
 }
 
+function activeOrganismId() {
+  return localStorage.getItem('mg-active-organism') || deployState.organism?.organism_id || '';
+}
+
+function organismQuery(prefix = '?') {
+  const id = activeOrganismId();
+  return id ? `${prefix}organism_id=${encodeURIComponent(id)}` : '';
+}
+
 async function createOrganismFromDeploy() {
   setDeployState({ status: 'creating_organism', error: null });
   try {
@@ -2031,17 +2040,19 @@ function renderServices(services) {
 
 async function fetchAndRender() {
   try {
+    const orgQ = organismQuery();
+    const orgJoin = orgQ ? `${orgQ}&` : '?';
     const [agents, axl, tasks, infts, storage, treasury, history, stats, services, activity, policy] = await Promise.all([
-      fetch(`${API}/api/agents`).then(r => r.json()).catch(() => ({ agents: [] })),
-      fetch(`${API}/api/axl?limit=14`).then(r => r.json()).catch(() => ({ messages: [] })),
-      fetch(`${API}/api/tasks?limit=8`).then(r => r.json()).catch(() => ({ tasks: [] })),
-      fetch(`${API}/api/infts?limit=9`).then(r => r.json()).catch(() => ({ infts: [] })),
-      fetch(`${API}/api/storage?limit=20`).then(r => r.json()).catch(() => ({ records: [] })),
-      fetch(`${API}/api/treasury`).then(r => r.json()).catch(() => ({ treasury: null })),
-      fetch(`${API}/api/treasury/history?limit=60`).then(r => r.json()).catch(() => ({ history: [] })),
-      fetch(`${API}/api/stats`).then(r => r.json()).catch(() => ({ stats: null })),
+      fetch(`${API}/api/agents${orgQ}`).then(r => r.json()).catch(() => ({ agents: [] })),
+      fetch(`${API}/api/axl${orgJoin}limit=14`).then(r => r.json()).catch(() => ({ messages: [] })),
+      fetch(`${API}/api/tasks${orgJoin}limit=8`).then(r => r.json()).catch(() => ({ tasks: [] })),
+      fetch(`${API}/api/infts${orgJoin}limit=9`).then(r => r.json()).catch(() => ({ infts: [] })),
+      fetch(`${API}/api/storage${orgJoin}limit=20`).then(r => r.json()).catch(() => ({ records: [] })),
+      fetch(`${API}/api/treasury${orgQ}`).then(r => r.json()).catch(() => ({ treasury: null })),
+      fetch(`${API}/api/treasury/history${orgJoin}limit=60`).then(r => r.json()).catch(() => ({ history: [] })),
+      fetch(`${API}/api/stats${orgQ}`).then(r => r.json()).catch(() => ({ stats: null })),
       fetch(`${API}/api/services`).then(r => r.json()).catch(() => null),
-      fetch(`${API}/api/activity/grouped?limit_per_agent=15`).then(r => r.json()).catch(() => ({ agents: {} })),
+      fetch(`${API}/api/activity/grouped${orgJoin}limit_per_agent=15`).then(r => r.json()).catch(() => ({ agents: {} })),
       fetch(`${API}/api/execution/policy`).then(r => r.json()).catch(() => ({ policy: null })),
     ]);
     if (agents.agents && agents.agents.length) renderAgentCards(agents.agents);

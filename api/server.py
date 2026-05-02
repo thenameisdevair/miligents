@@ -447,8 +447,8 @@ def organism_keeperhub_test_transfer(
 # ─── Agents ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/agents")
-def agents():
-    return {"agents": get_all_agents()}
+def agents(organism_id: str = None):
+    return {"agents": get_all_agents(organism_id=organism_id)}
 
 
 @app.get("/api/agents/{agent_id}")
@@ -462,22 +462,22 @@ def agent(agent_id: str):
 # ─── AXL Messages ─────────────────────────────────────────────────────────────
 
 @app.get("/api/axl")
-def axl(limit: int = 50):
-    return {"messages": get_axl_messages(limit=limit)}
+def axl(limit: int = 50, organism_id: str = None):
+    return {"messages": get_axl_messages(limit=limit, organism_id=organism_id)}
 
 
 # ─── Storage Records ──────────────────────────────────────────────────────────
 
 @app.get("/api/storage")
-def storage(limit: int = 20):
-    return {"records": get_storage_records(limit=limit)}
+def storage(limit: int = 20, organism_id: str = None):
+    return {"records": get_storage_records(limit=limit, organism_id=organism_id)}
 
 
 # ─── KeeperHub Tasks ──────────────────────────────────────────────────────────
 
 @app.get("/api/tasks")
-def tasks(limit: int = 20):
-    return {"tasks": get_keeperhub_tasks(limit=limit)}
+def tasks(limit: int = 20, organism_id: str = None):
+    return {"tasks": get_keeperhub_tasks(limit=limit, organism_id=organism_id)}
 
 
 @app.get("/api/execution/policy")
@@ -581,17 +581,17 @@ def keeperhub_test_transfer(network: str = "sepolia", amount: str = None, to: st
 # ─── iNFTs ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/infts")
-def infts(limit: int = 20):
+def infts(limit: int = 20, organism_id: str = None):
     return {
-        "infts": get_infts(limit=limit),
-        "total": get_inft_count()
+        "infts": get_infts(limit=limit, organism_id=organism_id),
+        "total": get_inft_count(organism_id=organism_id)
     }
 
 
 # ─── Treasury ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/treasury")
-def treasury():
+def treasury(organism_id: str = None):
     """
     Fetch the organism's treasury wallet balance from the configured
     EVM RPC, write a snapshot to state.db, and return the latest snapshot.
@@ -603,28 +603,28 @@ def treasury():
     if address:
         try:
             balance = get_eth_balance(address)
-            write_treasury_snapshot(eth_balance=balance)
+            write_treasury_snapshot(eth_balance=balance, organism_id=organism_id)
         except Exception as e:
             rpc_error = str(e)
 
     return {
-        "treasury": get_latest_treasury(),
+        "treasury": get_latest_treasury(organism_id=organism_id),
         "wallet_address": address,
         "rpc_error": rpc_error,
     }
 
 
 @app.get("/api/treasury/history")
-def treasury_history(limit: int = 60):
-    return {"history": get_treasury_history(limit=limit)}
+def treasury_history(limit: int = 60, organism_id: str = None):
+    return {"history": get_treasury_history(limit=limit, organism_id=organism_id)}
 
 
 # ─── Stats ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/stats")
-def stats():
+def stats(organism_id: str = None):
     return {
-        "stats": get_summary_stats(),
+        "stats": get_summary_stats(organism_id=organism_id),
         "wallet_address": os.getenv("WALLET_ADDRESS"),
     }
 
@@ -654,30 +654,32 @@ def services():
 # ─── Cycles ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/cycles")
-def cycles(limit: int = 20):
-    return {"cycles": get_cycles(limit=limit)}
+def cycles(limit: int = 20, organism_id: str = None):
+    return {"cycles": get_cycles(limit=limit, organism_id=organism_id)}
 
 
 # ─── Activity ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/activity")
-def activity(agent_id: str = None, cycle_id: str = None, limit: int = 30):
+def activity(agent_id: str = None, cycle_id: str = None, organism_id: str = None, limit: int = 30):
     return {
         "activity": get_activity(
             agent_id=agent_id,
             cycle_id=cycle_id,
+            organism_id=organism_id,
             limit=limit,
         )
     }
 
 
 @app.get("/api/activity/grouped")
-def activity_grouped(limit_per_agent: int = 15):
+def activity_grouped(limit_per_agent: int = 15, organism_id: str = None):
     limit_per_agent = max(1, min(int(limit_per_agent or 15), 50))
     agents = ["originator", "specialist", "execution", "scheduler"]
     return {
         "agents": {
             agent_id: get_activity(agent_id=agent_id, limit=limit_per_agent)
+            if not organism_id else get_activity(agent_id=agent_id, organism_id=organism_id, limit=limit_per_agent)
             for agent_id in agents
         }
     }

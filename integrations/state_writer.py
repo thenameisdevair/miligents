@@ -550,7 +550,8 @@ def write_inft(
 
 def write_treasury_snapshot(
     eth_balance: str,
-    usd_value: str = None
+    usd_value: str = None,
+    organism_id: str = None,
 ) -> None:
     """
     Record a treasury balance snapshot.
@@ -562,9 +563,9 @@ def write_treasury_snapshot(
     try:
         conn = _get_conn()
         conn.execute(
-            """INSERT INTO treasury_snapshots (eth_balance, usd_value, timestamp)
-               VALUES (?, ?, ?)""",
-            (eth_balance, usd_value, _now())
+            """INSERT INTO treasury_snapshots (eth_balance, usd_value, timestamp, organism_id)
+               VALUES (?, ?, ?, ?)""",
+            (eth_balance, usd_value, _now(), organism_id or DEFAULT_ORGANISM_ID)
         )
         conn.commit()
         conn.close()
