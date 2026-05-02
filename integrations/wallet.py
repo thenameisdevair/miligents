@@ -9,6 +9,9 @@ No web3.py dependency — raw JSON-RPC over HTTPS via `requests`.
 
 Environment variables:
     OG_RPC_URL       EVM JSON-RPC endpoint (e.g. https://evmrpc-testnet.0g.ai)
+    SEPOLIA_RPC_URL  Ethereum Sepolia JSON-RPC endpoint
+    BASE_RPC_URL     Base mainnet JSON-RPC endpoint
+    ETHEREUM_RPC_URL Ethereum mainnet JSON-RPC endpoint
     WALLET_ADDRESS   Treasury wallet address (0x-prefixed, 40 hex chars)
 """
 
@@ -23,6 +26,32 @@ load_dotenv()
 DEFAULT_TIMEOUT = 10
 WEI_PER_ETH = Decimal(10) ** 18
 ETH_DISPLAY_PRECISION = Decimal("0.000001")
+RPC_ENV_BY_NETWORK = {
+    "0g": "OG_RPC_URL",
+    "og": "OG_RPC_URL",
+    "galileo": "OG_RPC_URL",
+    "sepolia": "SEPOLIA_RPC_URL",
+    "base": "BASE_RPC_URL",
+    "ethereum": "ETHEREUM_RPC_URL",
+    "mainnet": "ETHEREUM_RPC_URL",
+}
+
+
+def get_rpc_url_for_network(network: str | None = None) -> str:
+    """
+    Resolve the configured RPC URL for a network.
+
+    This prevents Sepolia/Base funding checks from accidentally reading the 0G
+    RPC just because OG_RPC_URL is configured.
+    """
+    key = (network or "og").lower()
+    env_name = RPC_ENV_BY_NETWORK.get(key)
+    if not env_name:
+        raise RuntimeError(f"Unsupported RPC network: {network}")
+    url = os.getenv(env_name)
+    if not url:
+        raise RuntimeError(f"{env_name} is not set")
+    return url
 
 
 def _rpc_call(method: str, params: list, rpc_url: str | None = None) -> dict:
@@ -85,6 +114,11 @@ def get_eth_balance(address: str | None = None, rpc_url: str | None = None) -> s
     wei = Decimal(int(wei_hex, 16))
     eth = (wei / WEI_PER_ETH).quantize(ETH_DISPLAY_PRECISION)
     return str(eth)
+
+
+def get_native_balance(address: str, network: str) -> str:
+    """Fetch an address balance from the RPC configured for the given network."""
+    return get_eth_balance(address=address, rpc_url=get_rpc_url_for_network(network))
 
 
 def get_block_number(rpc_url: str | None = None) -> int:

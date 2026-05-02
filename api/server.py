@@ -66,12 +66,14 @@ from integrations.execution_policy import get_policy
 from integrations.keeperhub import execute_transfer, get_direct_execution_status
 from integrations.organisms import (
     assert_owner,
+    check_funding,
     create_organism,
     get_organism_bundle,
     get_organism_funding,
     get_organism_policy,
     list_organisms,
     patch_policy,
+    record_funding_tx,
     update_organism_status,
 )
 from integrations.state_writer import (
@@ -134,6 +136,11 @@ class PolicyPatchRequest(BaseModel):
     max_daily_spend_eth: str | None = None
     allow_approvals: bool | None = None
     mainnet_confirmed: bool | None = None
+
+
+class FundingTxRequest(BaseModel):
+    tx_hash: str
+    network: str | None = None
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────
@@ -284,6 +291,28 @@ def organism_funding(organism_id: str, request: Request):
         session = _require_session(request)
         assert_owner(organism_id, session["owner_wallet"])
         return {"funding": get_organism_funding(organism_id)}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/api/organisms/{organism_id}/funding/check")
+def organism_funding_check(organism_id: str, request: Request):
+    try:
+        session = _require_session(request)
+        assert_owner(organism_id, session["owner_wallet"])
+        bundle = check_funding(organism_id)
+        return {"status": "ok", **bundle}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/api/organisms/{organism_id}/funding/tx")
+def organism_funding_tx(organism_id: str, payload: FundingTxRequest, request: Request):
+    try:
+        session = _require_session(request)
+        assert_owner(organism_id, session["owner_wallet"])
+        bundle = record_funding_tx(organism_id, payload.tx_hash, payload.network)
+        return {"status": "ok", **bundle}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 

@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from integrations.state_writer import DEFAULT_ORGANISM_ID, _get_conn
+from integrations.wallet import get_native_balance
 
 
 def _now() -> str:
@@ -214,6 +215,73 @@ def get_organism_bundle(organism_id: str) -> dict | None:
         "policy": get_organism_policy(organism_id),
         "funding": get_organism_funding(organism_id),
     }
+
+
+def check_funding(organism_id: str) -> dict:
+    conn = _get_conn()
+    row = conn.execute(
+        """SELECT * FROM organism_funding
+           WHERE organism_id = ?
+           ORDER BY created_at DESC, id DESC LIMIT 1""",
+        (organism_id,),
+    ).fetchone()
+    if not row:
+        conn.close()
+        raise ValueError("funding record not found")
+    if not row["deposit_address"]:
+        conn.close()
+        raise ValueError("organism has no execution wallet deposit address")
+
+    received = get_native_balance(row["deposit_address"], row["network"])
+    expected = Decimal(str(row["expected_amount"] or "0"))
+    received_dec = Decimal(str(received))
+    status = "funded" if received_dec >= expected and received_dec > 0 else "pending"
+    now = _now()
+    conn.execute(
+        """UPDATE organism_funding
+           SET received_amount = ?, status = ?, updated_at = ?
+           WHERE id = ?""",
+        (received, status, now, row["id"]),
+    )
+    if status == "funded":
+        conn.execute(
+            """UPDATE organisms
+               SET status = CASE
+                   WHEN status IN ('needs_funding', 'created') THEN 'funded'
+                   ELSE status
+               END,
+               updated_at = ?
+               WHERE organism_id = ?""",
+            (now, organism_id),
+        )
+    conn.commit()
+    conn.close()
+    return get_organism_bundle(organism_id)
+
+
+def record_funding_tx(organism_id: str, tx_hash: str, network: str | None = None) -> dict:
+    tx_hash = (tx_hash or "").strip()
+    if not tx_hash.startswith("0x") or len(tx_hash) < 20:
+        raise ValueError("valid funding tx hash is required")
+    conn = _get_conn()
+    row = conn.execute(
+        """SELECT * FROM organism_funding
+           WHERE organism_id = ?
+           ORDER BY created_at DESC, id DESC LIMIT 1""",
+        (organism_id,),
+    ).fetchone()
+    if not row:
+        conn.close()
+        raise ValueError("funding record not found")
+    conn.execute(
+        """UPDATE organism_funding
+           SET funding_tx = ?, network = COALESCE(?, network), status = 'submitted', updated_at = ?
+           WHERE id = ?""",
+        (tx_hash, network, _now(), row["id"]),
+    )
+    conn.commit()
+    conn.close()
+    return get_organism_bundle(organism_id)
 
 
 def assert_owner(organism_id: str, owner_wallet: str) -> dict:
