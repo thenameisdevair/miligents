@@ -327,6 +327,38 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+CURRENT_ORGANISM_FILE = os.path.join(STATE_DIR, "current_organism.txt")
+
+
+def set_current_organism(organism_id: str) -> None:
+    """Record active organism_id so agent writes can attach it."""
+    try:
+        Path(STATE_DIR).mkdir(parents=True, exist_ok=True)
+        with open(CURRENT_ORGANISM_FILE, "w") as f:
+            f.write(organism_id or DEFAULT_ORGANISM_ID)
+    except Exception as e:
+        print(f"[StateWriter] set_current_organism failed: {e}")
+
+
+def clear_current_organism() -> None:
+    """Remove active organism marker."""
+    try:
+        if os.path.exists(CURRENT_ORGANISM_FILE):
+            os.remove(CURRENT_ORGANISM_FILE)
+    except Exception as e:
+        print(f"[StateWriter] clear_current_organism failed: {e}")
+
+
+def _read_current_organism() -> str:
+    try:
+        if os.path.exists(CURRENT_ORGANISM_FILE):
+            with open(CURRENT_ORGANISM_FILE) as f:
+                return f.read().strip() or DEFAULT_ORGANISM_ID
+    except Exception:
+        pass
+    return DEFAULT_ORGANISM_ID
+
+
 # ─── Agent Status ─────────────────────────────────────────────────────────────
 
 def write_agent_status(
@@ -334,7 +366,8 @@ def write_agent_status(
     status: str,
     current_task: str = None,
     spawned_count: int = None,
-    result: str = None
+    result: str = None,
+    organism_id: str = None,
 ) -> None:
     """
     Write or update an agent's current status.
@@ -349,13 +382,14 @@ def write_agent_status(
     try:
         conn = _get_conn()
         now = _now()
+        organism_id = organism_id or _read_current_organism()
         existing = conn.execute(
             "SELECT agent_id FROM agents WHERE agent_id = ?", (agent_id,)
         ).fetchone()
 
         if existing:
-            fields = ["status = ?", "updated_at = ?"]
-            values = [status, now]
+            fields = ["status = ?", "updated_at = ?", "organism_id = ?"]
+            values = [status, now, organism_id]
             if current_task is not None:
                 fields.append("current_task = ?")
                 values.append(current_task)
@@ -373,12 +407,13 @@ def write_agent_status(
         else:
             conn.execute(
                 """INSERT INTO agents
-                   (agent_id, status, current_task, started_at, updated_at, spawned_count, result)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   (agent_id, status, current_task, started_at, updated_at, spawned_count, result, organism_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     agent_id, status, current_task, now, now,
                     spawned_count or 0,
-                    result[:500] if result else None
+                    result[:500] if result else None,
+                    organism_id,
                 )
             )
         conn.commit()
@@ -393,7 +428,8 @@ def write_axl_message(
     from_agent: str,
     to_agent: str,
     msg_type: str,
-    payload: dict
+    payload: dict,
+    organism_id: str = None,
 ) -> None:
     """
     Record an AXL message sent or received.
@@ -406,21 +442,22 @@ def write_axl_message(
     """
     try:
         conn = _get_conn()
+        organism_id = organism_id or _read_current_organism()
         conn.execute(
-            """INSERT INTO axl_messages (from_agent, to_agent, msg_type, payload, timestamp)
-               VALUES (?, ?, ?, ?, ?)""",
-            (from_agent, to_agent, msg_type, json.dumps(payload), _now())
+            """INSERT INTO axl_messages (from_agent, to_agent, msg_type, payload, timestamp, organism_id)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (from_agent, to_agent, msg_type, json.dumps(payload), _now(), organism_id)
         )
         conn.commit()
         conn.close()
         write_activity(from_agent, "axl_send", f"sent {msg_type} to {to_agent}", {
             "to_agent": to_agent,
             "msg_type": msg_type,
-        })
+        }, organism_id=organism_id)
         write_activity(to_agent, "axl_recv", f"received {msg_type} from {from_agent}", {
             "from_agent": from_agent,
             "msg_type": msg_type,
-        })
+        }, organism_id=organism_id)
     except Exception as e:
         print(f"[StateWriter] write_axl_message failed: {e}")
 
@@ -430,7 +467,8 @@ def write_axl_message(
 def write_storage_record(
     agent_id: str,
     filename: str,
-    root_hash: str
+    root_hash: str,
+    organism_id: str = None,
 ) -> None:
     """
     Record a 0G Storage upload.
@@ -442,10 +480,11 @@ def write_storage_record(
     """
     try:
         conn = _get_conn()
+        organism_id = organism_id or _read_current_organism()
         conn.execute(
-            """INSERT INTO storage_records (agent_id, filename, root_hash, timestamp)
-               VALUES (?, ?, ?, ?)""",
-            (agent_id, filename, root_hash, _now())
+            """INSERT INTO storage_records (agent_id, filename, root_hash, timestamp, organism_id)
+               VALUES (?, ?, ?, ?, ?)""",
+            (agent_id, filename, root_hash, _now(), organism_id)
         )
         conn.commit()
         conn.close()
@@ -453,7 +492,7 @@ def write_storage_record(
         write_activity(agent_id, "storage", f"stored {filename} (root: {root_short})", {
             "filename": filename,
             "root_hash": root_hash,
-        })
+        }, organism_id=organism_id)
     except Exception as e:
         print(f"[StateWriter] write_storage_record failed: {e}")
 
@@ -494,7 +533,7 @@ def write_keeperhub_task(
                 status,
                 tx_hash,
                 _now(),
-                organism_id or DEFAULT_ORGANISM_ID,
+                organism_id or _read_current_organism(),
             )
         )
         conn.commit()
@@ -511,7 +550,8 @@ def write_inft(
     root_hash: str,
     strategy_name: str = None,
     version: int = 1,
-    mint_tx: str = None
+    mint_tx: str = None,
+    organism_id: str = None,
 ) -> None:
     """
     Record a minted iNFT.
@@ -526,11 +566,12 @@ def write_inft(
     """
     try:
         conn = _get_conn()
+        organism_id = organism_id or _read_current_organism()
         conn.execute(
             """INSERT INTO infts
-               (agent_id, token_id, root_hash, strategy_name, version, mint_tx, minted_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (agent_id, token_id, root_hash, strategy_name, version, mint_tx, _now())
+               (agent_id, token_id, root_hash, strategy_name, version, mint_tx, minted_at, organism_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (agent_id, token_id, root_hash, strategy_name, version, mint_tx, _now(), organism_id)
         )
         conn.commit()
         conn.close()
@@ -541,7 +582,7 @@ def write_inft(
             "strategy_name": strategy_name,
             "version": version,
             "mint_tx": mint_tx,
-        })
+        }, organism_id=organism_id)
     except Exception as e:
         print(f"[StateWriter] write_inft failed: {e}")
 
@@ -565,7 +606,7 @@ def write_treasury_snapshot(
         conn.execute(
             """INSERT INTO treasury_snapshots (eth_balance, usd_value, timestamp, organism_id)
                VALUES (?, ?, ?, ?)""",
-            (eth_balance, usd_value, _now(), organism_id or DEFAULT_ORGANISM_ID)
+            (eth_balance, usd_value, _now(), organism_id or _read_current_organism())
         )
         conn.commit()
         conn.close()
@@ -614,6 +655,7 @@ def write_activity(
     summary: str,
     details: dict | None = None,
     cycle_id: str | None = None,
+    organism_id: str | None = None,
 ) -> None:
     """
     Append one event to the live activity feed.
@@ -632,11 +674,12 @@ def write_activity(
     try:
         if cycle_id is None:
             cycle_id = _read_current_cycle()
+        organism_id = organism_id or _read_current_organism()
         conn = _get_conn()
         conn.execute(
             """INSERT INTO activity
-               (agent_id, kind, summary, details, cycle_id, timestamp)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (agent_id, kind, summary, details, cycle_id, timestamp, organism_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
                 agent_id,
                 kind,
@@ -644,6 +687,7 @@ def write_activity(
                 json.dumps(details) if details else None,
                 cycle_id,
                 _now(),
+                organism_id,
             ),
         )
         conn.commit()
@@ -654,7 +698,7 @@ def write_activity(
 
 # ─── Scheduler Cycles ─────────────────────────────────────────────────────────
 
-def write_cycle_start(cycle_id: str) -> None:
+def write_cycle_start(cycle_id: str, organism_id: str = None) -> None:
     """
     Record the start of a new scheduler cycle.
     Args:
@@ -663,9 +707,9 @@ def write_cycle_start(cycle_id: str) -> None:
     try:
         conn = _get_conn()
         conn.execute(
-            """INSERT OR IGNORE INTO cycles (cycle_id, started_at, status)
-               VALUES (?, ?, 'running')""",
-            (cycle_id, _now())
+            """INSERT OR IGNORE INTO cycles (cycle_id, started_at, status, organism_id)
+               VALUES (?, ?, 'running', ?)""",
+            (cycle_id, _now(), organism_id or _read_current_organism())
         )
         conn.commit()
         conn.close()
@@ -679,6 +723,7 @@ def write_cycle_complete(
     originator_status: str = None,
     specialist_status: str = None,
     execution_status: str = None,
+    organism_id: str = None,
 ) -> None:
     """
     Update a cycle record when it finishes.
@@ -697,11 +742,13 @@ def write_cycle_complete(
                    status = ?,
                    originator_status = ?,
                    specialist_status = ?,
-                   execution_status = ?
+                   execution_status = ?,
+                   organism_id = COALESCE(organism_id, ?)
                WHERE cycle_id = ?""",
             (
                 _now(), status,
                 originator_status, specialist_status, execution_status,
+                organism_id or _read_current_organism(),
                 cycle_id,
             )
         )

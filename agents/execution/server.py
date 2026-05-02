@@ -17,10 +17,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from agents.execution.main import run
-from integrations.state_writer import write_agent_status, write_activity
+from integrations.state_writer import (
+    DEFAULT_ORGANISM_ID,
+    set_current_cycle,
+    set_current_organism,
+    write_agent_status,
+    write_activity,
+)
 
 load_dotenv()
 
@@ -37,6 +44,11 @@ _is_running = False
 _run_lock = threading.Lock()
 
 
+class RunRequest(BaseModel):
+    organism_id: str = DEFAULT_ORGANISM_ID
+    cycle_id: str | None = None
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "agent": "execution"}
@@ -48,7 +60,7 @@ def status():
 
 
 @app.post("/run")
-def trigger_run():
+def trigger_run(payload: RunRequest | None = None):
     global _is_running
     with _run_lock:
         if _is_running:
@@ -57,20 +69,25 @@ def trigger_run():
 
     def _run():
         global _is_running
-        write_activity("execution", "status", "started")
+        organism_id = (payload.organism_id if payload else DEFAULT_ORGANISM_ID) or DEFAULT_ORGANISM_ID
+        cycle_id = payload.cycle_id if payload else None
+        set_current_organism(organism_id)
+        if cycle_id:
+            set_current_cycle(cycle_id)
+        write_activity("execution", "status", "started", cycle_id=cycle_id, organism_id=organism_id)
         try:
             run()
-            write_activity("execution", "status", "finished")
+            write_activity("execution", "status", "finished", cycle_id=cycle_id, organism_id=organism_id)
         except Exception as e:
             print(f"[Execution Server] run() failed: {e}")
-            write_agent_status("execution", "error", result=str(e))
-            write_activity("execution", "error", f"run() raised: {str(e)[:120]}")
+            write_agent_status("execution", "error", result=str(e), organism_id=organism_id)
+            write_activity("execution", "error", f"run() raised: {str(e)[:120]}", cycle_id=cycle_id, organism_id=organism_id)
         finally:
             _is_running = False
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
-    return {"status": "started", "agent": "execution"}
+    return {"status": "started", "agent": "execution", "organism_id": (payload.organism_id if payload else DEFAULT_ORGANISM_ID)}
 
 
 if __name__ == "__main__":

@@ -39,7 +39,11 @@ from integrations.state_writer import (
     write_activity,
     set_current_cycle,
     clear_current_cycle,
+    set_current_organism,
+    clear_current_organism,
+    DEFAULT_ORGANISM_ID,
 )
+from integrations.organisms import list_organisms
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -71,13 +75,17 @@ def log(msg: str):
     print(f"[Scheduler {ts}] {msg}", flush=True)
 
 
-def wait_for_agent(name: str, url: str, timeout_minutes: int) -> str:
+def wait_for_agent(name: str, url: str, timeout_minutes: int, organism_id: str, cycle_id: str) -> str:
     """
     Trigger an agent via POST /run, then poll GET /status until
     running=false. Returns 'complete' or 'timeout'.
     """
     try:
-        resp = requests.post(f"{url}/run", timeout=10)
+        resp = requests.post(
+            f"{url}/run",
+            json={"organism_id": organism_id, "cycle_id": cycle_id},
+            timeout=10,
+        )
         if resp.status_code == 409:
             log(f"{name} already running — waiting for it to finish")
         elif resp.status_code != 200:
@@ -107,24 +115,39 @@ def wait_for_agent(name: str, url: str, timeout_minutes: int) -> str:
 
 # ─── Main Loop ────────────────────────────────────────────────────────────────
 
-def run_cycle():
-    cycle_id = f"cycle_{now_id()}"
-    log(f"Starting cycle {cycle_id}")
-    write_cycle_start(cycle_id)
+def active_organism_ids() -> list[str]:
+    try:
+        organisms = list_organisms()
+        ids = [
+            org["organism_id"]
+            for org in organisms
+            if org.get("status") in {"active", "funded"} and org.get("organism_id")
+        ]
+        return ids or [DEFAULT_ORGANISM_ID]
+    except Exception as e:
+        log(f"Could not load organisms, falling back to {DEFAULT_ORGANISM_ID}: {e}")
+        return [DEFAULT_ORGANISM_ID]
+
+
+def run_cycle(organism_id: str):
+    cycle_id = f"cycle_{organism_id}_{now_id()}"
+    log(f"Starting cycle {cycle_id} for {organism_id}")
+    set_current_organism(organism_id)
+    write_cycle_start(cycle_id, organism_id=organism_id)
     set_current_cycle(cycle_id)
-    write_activity("scheduler", "cycle", f"started {cycle_id}", cycle_id=cycle_id)
+    write_activity("scheduler", "cycle", f"started {cycle_id}", cycle_id=cycle_id, organism_id=organism_id)
 
-    write_activity("scheduler", "task", "triggering originator", cycle_id=cycle_id)
-    o_status = wait_for_agent("originator", ORIGINATOR_URL, AGENT_TIMEOUT_MINUTES)
-    write_activity("scheduler", "status", f"originator → {o_status}", cycle_id=cycle_id)
+    write_activity("scheduler", "task", "triggering originator", cycle_id=cycle_id, organism_id=organism_id)
+    o_status = wait_for_agent("originator", ORIGINATOR_URL, AGENT_TIMEOUT_MINUTES, organism_id, cycle_id)
+    write_activity("scheduler", "status", f"originator → {o_status}", cycle_id=cycle_id, organism_id=organism_id)
 
-    write_activity("scheduler", "task", "triggering specialist", cycle_id=cycle_id)
-    s_status = wait_for_agent("specialist", SPECIALIST_URL, AGENT_TIMEOUT_MINUTES)
-    write_activity("scheduler", "status", f"specialist → {s_status}", cycle_id=cycle_id)
+    write_activity("scheduler", "task", "triggering specialist", cycle_id=cycle_id, organism_id=organism_id)
+    s_status = wait_for_agent("specialist", SPECIALIST_URL, AGENT_TIMEOUT_MINUTES, organism_id, cycle_id)
+    write_activity("scheduler", "status", f"specialist → {s_status}", cycle_id=cycle_id, organism_id=organism_id)
 
-    write_activity("scheduler", "task", "triggering execution", cycle_id=cycle_id)
-    e_status = wait_for_agent("execution",  EXECUTION_URL,  AGENT_TIMEOUT_MINUTES)
-    write_activity("scheduler", "status", f"execution → {e_status}", cycle_id=cycle_id)
+    write_activity("scheduler", "task", "triggering execution", cycle_id=cycle_id, organism_id=organism_id)
+    e_status = wait_for_agent("execution",  EXECUTION_URL,  AGENT_TIMEOUT_MINUTES, organism_id, cycle_id)
+    write_activity("scheduler", "status", f"execution → {e_status}", cycle_id=cycle_id, organism_id=organism_id)
 
     final = "complete" if all(
         s in ("complete", "timeout") for s in [o_status, s_status, e_status]
@@ -136,9 +159,11 @@ def run_cycle():
         originator_status=o_status,
         specialist_status=s_status,
         execution_status=e_status,
+        organism_id=organism_id,
     )
-    write_activity("scheduler", "cycle", f"finished {cycle_id} ({final})", cycle_id=cycle_id)
+    write_activity("scheduler", "cycle", f"finished {cycle_id} ({final})", cycle_id=cycle_id, organism_id=organism_id)
     clear_current_cycle()
+    clear_current_organism()
     log(f"Cycle {cycle_id} done — status: {final}")
 
 
@@ -153,7 +178,8 @@ def main():
             log("Paused — skipping this cycle. Delete scheduler.paused to resume.")
         else:
             try:
-                run_cycle()
+                for organism_id in active_organism_ids():
+                    run_cycle(organism_id)
             except Exception as e:
                 log(f"Cycle failed with unexpected error: {e}")
 
