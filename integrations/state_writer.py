@@ -19,6 +19,7 @@ from pathlib import Path
 # State DB path — shared Docker volume in production, local in dev
 STATE_DIR = os.getenv("STATE_DIR", "./state")
 DB_PATH = os.path.join(STATE_DIR, "state.db")
+DEFAULT_ORGANISM_ID = os.getenv("DEFAULT_ORGANISM_ID", "local-default")
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -33,6 +34,88 @@ def _get_conn() -> sqlite3.Connection:
 def _ensure_schema(conn: sqlite3.Connection) -> None:
     """Create all tables if they do not exist."""
     conn.executescript("""
+        CREATE TABLE IF NOT EXISTS organisms (
+            organism_id              TEXT PRIMARY KEY,
+            owner_wallet             TEXT NOT NULL,
+            owner_chain_id           INTEGER,
+            status                   TEXT NOT NULL DEFAULT 'created',
+            name                     TEXT,
+            risk_profile             TEXT NOT NULL DEFAULT 'balanced',
+            max_child_agents         INTEGER NOT NULL DEFAULT 3,
+            domains                  TEXT,
+            treasury_target_amount   TEXT,
+            treasury_asset           TEXT,
+            keeperhub_wallet_address TEXT,
+            keeperhub_wallet_label   TEXT,
+            og_wallet_mode           TEXT NOT NULL DEFAULT 'platform',
+            created_at               TEXT NOT NULL,
+            updated_at               TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS organisms_owner_idx
+            ON organisms(owner_wallet);
+
+        CREATE TABLE IF NOT EXISTS organism_policy (
+            organism_id             TEXT PRIMARY KEY,
+            live_execution          INTEGER NOT NULL DEFAULT 0,
+            allowed_networks        TEXT NOT NULL DEFAULT 'sepolia',
+            allowed_contracts       TEXT,
+            allowed_functions       TEXT,
+            max_tx_eth              TEXT NOT NULL DEFAULT '0.001',
+            max_daily_spend_eth     TEXT NOT NULL DEFAULT '0.005',
+            allow_approvals         INTEGER NOT NULL DEFAULT 0,
+            mainnet_confirmed       INTEGER NOT NULL DEFAULT 0,
+            created_at              TEXT NOT NULL,
+            updated_at              TEXT NOT NULL,
+            FOREIGN KEY (organism_id) REFERENCES organisms(organism_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS organism_funding (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            organism_id         TEXT NOT NULL,
+            network             TEXT NOT NULL,
+            asset               TEXT NOT NULL,
+            deposit_address     TEXT NOT NULL,
+            expected_amount     TEXT,
+            received_amount     TEXT,
+            funding_tx          TEXT,
+            status              TEXT NOT NULL DEFAULT 'pending',
+            created_at          TEXT NOT NULL,
+            updated_at          TEXT NOT NULL,
+            FOREIGN KEY (organism_id) REFERENCES organisms(organism_id)
+        );
+        CREATE INDEX IF NOT EXISTS organism_funding_org_idx
+            ON organism_funding(organism_id);
+
+        CREATE TABLE IF NOT EXISTS organism_execution (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            organism_id      TEXT NOT NULL,
+            agent_id         TEXT NOT NULL,
+            network          TEXT,
+            action_type      TEXT,
+            execution_id     TEXT,
+            tx_hash          TEXT,
+            status           TEXT,
+            amount_eth       TEXT,
+            details          TEXT,
+            timestamp        TEXT NOT NULL,
+            FOREIGN KEY (organism_id) REFERENCES organisms(organism_id)
+        );
+        CREATE INDEX IF NOT EXISTS organism_execution_org_ts
+            ON organism_execution(organism_id, timestamp DESC);
+
+        CREATE TABLE IF NOT EXISTS keeperhub_wallet_pool (
+            wallet_address        TEXT PRIMARY KEY,
+            wallet_label          TEXT,
+            network               TEXT NOT NULL,
+            status                TEXT NOT NULL DEFAULT 'available',
+            assigned_organism_id  TEXT,
+            created_at            TEXT NOT NULL,
+            updated_at            TEXT NOT NULL,
+            FOREIGN KEY (assigned_organism_id) REFERENCES organisms(organism_id)
+        );
+        CREATE INDEX IF NOT EXISTS keeperhub_wallet_pool_status_idx
+            ON keeperhub_wallet_pool(status, network);
+
         CREATE TABLE IF NOT EXISTS agents (
             agent_id      TEXT PRIMARY KEY,
             status        TEXT NOT NULL DEFAULT 'idle',
@@ -114,7 +197,107 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS activity_ts
             ON activity(timestamp DESC);
     """)
+    _ensure_organism_columns(conn)
+    _ensure_default_organism(conn)
     conn.commit()
+
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    if column not in _table_columns(conn, table):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def _ensure_organism_columns(conn: sqlite3.Connection) -> None:
+    """Backfill organism_id onto existing tables without breaking old queries."""
+    organism_tables = [
+        "agents",
+        "axl_messages",
+        "storage_records",
+        "keeperhub_tasks",
+        "infts",
+        "treasury_snapshots",
+        "cycles",
+        "activity",
+    ]
+    for table in organism_tables:
+        _ensure_column(conn, table, "organism_id", "TEXT")
+        conn.execute(
+            f"UPDATE {table} SET organism_id = ? WHERE organism_id IS NULL",
+            (DEFAULT_ORGANISM_ID,),
+        )
+
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS agents_organism_idx
+            ON agents(organism_id);
+        CREATE INDEX IF NOT EXISTS axl_messages_organism_ts
+            ON axl_messages(organism_id, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS storage_records_organism_ts
+            ON storage_records(organism_id, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS keeperhub_tasks_organism_ts
+            ON keeperhub_tasks(organism_id, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS infts_organism_ts
+            ON infts(organism_id, minted_at DESC);
+        CREATE INDEX IF NOT EXISTS treasury_snapshots_organism_ts
+            ON treasury_snapshots(organism_id, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS cycles_organism_ts
+            ON cycles(organism_id, started_at DESC);
+        CREATE INDEX IF NOT EXISTS activity_organism_ts
+            ON activity(organism_id, timestamp DESC);
+    """)
+
+
+def _ensure_default_organism(conn: sqlite3.Connection) -> None:
+    now = _now()
+    owner_wallet = os.getenv("WALLET_ADDRESS") or "local-default-owner"
+    conn.execute(
+        """INSERT OR IGNORE INTO organisms
+           (organism_id, owner_wallet, owner_chain_id, status, name, risk_profile,
+            max_child_agents, domains, treasury_target_amount, treasury_asset,
+            keeperhub_wallet_address, keeperhub_wallet_label, og_wallet_mode,
+            created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            DEFAULT_ORGANISM_ID,
+            owner_wallet,
+            None,
+            "active",
+            "Local Default Organism",
+            "balanced",
+            3,
+            json.dumps(["Agentic Trading", "Data Services"]),
+            None,
+            "ETH",
+            os.getenv("KEEPERHUB_WALLET_ADDRESS") or os.getenv("WALLET_ADDRESS"),
+            "local-default",
+            "platform",
+            now,
+            now,
+        ),
+    )
+    conn.execute(
+        """INSERT OR IGNORE INTO organism_policy
+           (organism_id, live_execution, allowed_networks, allowed_contracts,
+            allowed_functions, max_tx_eth, max_daily_spend_eth, allow_approvals,
+            mainnet_confirmed, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            DEFAULT_ORGANISM_ID,
+            0,
+            os.getenv("KEEPERHUB_ALLOWED_NETWORKS", "sepolia"),
+            os.getenv("KEEPERHUB_ALLOWED_CONTRACTS"),
+            os.getenv("KEEPERHUB_ALLOWED_FUNCTIONS"),
+            os.getenv("KEEPERHUB_MAX_TX_ETH", "0.001"),
+            os.getenv("KEEPERHUB_MAX_DAILY_SPEND_ETH", "0.005"),
+            1 if os.getenv("KEEPERHUB_ALLOW_APPROVALS", "false").lower() == "true" else 0,
+            1 if os.getenv("KEEPERHUB_MAINNET_CONFIRMED", "false").lower() == "true" else 0,
+            now,
+            now,
+        ),
+    )
 
 
 def _now() -> str:
