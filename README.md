@@ -95,6 +95,8 @@ All intelligence is stored on 0G Storage and minted as ERC-7857 iNFTs.
 - Creates workflows via `ai_generate_workflow` (natural language → workflow)
 - Executes workflows via `execute_workflow` and polls `get_execution_status`
 - All on-chain agent actions go through KeeperHub for guaranteed execution
+- Live transfer/contract-call writes are blocked by default by `integrations/execution_policy.py`
+- Enable live writes only after setting network, value, contract, and function allowlists
 - Integration: `integrations/keeperhub.py`
 - Feedback: `FEEDBACK.md`
 
@@ -176,8 +178,21 @@ OG_INFT_CONTRACT_ADDRESS= # Deployed MiliGentsINFT contract address
 WALLET_ADDRESS=           # Your wallet address
 KEEPERHUB_MCP_URL=        # KeeperHub MCP server URL
 KEEPERHUB_MCP_API_KEY=    # KeeperHub API key
+KEEPERHUB_LIVE_EXECUTION=false
+KEEPERHUB_ALLOWED_NETWORKS=sepolia
+KEEPERHUB_MAX_TX_ETH=0.001
+KEEPERHUB_MAX_DAILY_SPEND_ETH=0.005
+KEEPERHUB_ALLOWED_CONTRACTS=
+KEEPERHUB_ALLOWED_FUNCTIONS=
+KEEPERHUB_ALLOW_APPROVALS=false
+KEEPERHUB_MAINNET_CONFIRMED=false
 UNISWAP_API_KEY=          # Uniswap Trading API key
 ```
+
+KeeperHub safety defaults are deny-by-default. For a Sepolia write test, set
+`KEEPERHUB_LIVE_EXECUTION=true` plus the exact contract/function allowlist.
+For Base or other live networks, also set `KEEPERHUB_MAINNET_CONFIRMED=true`
+after funding the KeeperHub wallet with a small capped amount.
 
 ### 3. Build and run
 

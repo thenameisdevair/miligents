@@ -1611,7 +1611,7 @@ function renderAxlFeed(messages) {
   });
 }
 
-function renderKeeperTasks(tasks) {
+function renderKeeperTasks(tasks, policy = null) {
   const tbody = document.querySelector('.kh-table tbody');
   if (!tbody) return;
   const summary = document.getElementById('kh-summary');
@@ -1619,7 +1619,9 @@ function renderKeeperTasks(tasks) {
   const complete = tasks.filter(t => ['complete', 'completed', 'success', 'created'].includes(t.status)).length;
   const failed = tasks.filter(t => ['failed', 'error'].includes(t.status)).length;
   if (summary) {
-    summary.innerHTML = `<span>ROWS <b style="color:var(--mint-2)">${total}</b></span><span>FAILED <b style="color:var(--coral-2)">${failed}</b></span>`;
+    const policyLabel = policy ? (policy.live_execution ? 'LIVE' : 'LOCKED') : 'POLICY';
+    const policyColor = policy && policy.live_execution ? 'var(--coral-2)' : 'var(--mint-2)';
+    summary.innerHTML = `<span>${policyLabel} <b style="color:${policyColor}">${policy && policy.live_execution ? 'ON' : 'SAFE'}</b></span><span>ROWS <b style="color:var(--mint-2)">${total}</b></span><span>FAILED <b style="color:var(--coral-2)">${failed}</b></span>`;
   }
   if (!tasks.length) {
     tbody.innerHTML = '<tr><td colspan="4" class="muted">No KeeperHub task records yet.</td></tr>';
@@ -1796,7 +1798,7 @@ function renderServices(services) {
 
 async function fetchAndRender() {
   try {
-    const [agents, axl, tasks, infts, storage, treasury, history, stats, services, activity] = await Promise.all([
+    const [agents, axl, tasks, infts, storage, treasury, history, stats, services, activity, policy] = await Promise.all([
       fetch(`${API}/api/agents`).then(r => r.json()).catch(() => ({ agents: [] })),
       fetch(`${API}/api/axl?limit=14`).then(r => r.json()).catch(() => ({ messages: [] })),
       fetch(`${API}/api/tasks?limit=8`).then(r => r.json()).catch(() => ({ tasks: [] })),
@@ -1807,10 +1809,11 @@ async function fetchAndRender() {
       fetch(`${API}/api/stats`).then(r => r.json()).catch(() => ({ stats: null })),
       fetch(`${API}/api/services`).then(r => r.json()).catch(() => null),
       fetch(`${API}/api/activity/grouped?limit_per_agent=15`).then(r => r.json()).catch(() => ({ agents: {} })),
+      fetch(`${API}/api/execution/policy`).then(r => r.json()).catch(() => ({ policy: null })),
     ]);
     if (agents.agents && agents.agents.length) renderAgentCards(agents.agents);
     if (axl.messages && axl.messages.length) renderAxlFeed(axl.messages);
-    renderKeeperTasks(tasks.tasks || []);
+    renderKeeperTasks(tasks.tasks || [], policy.policy);
     if (infts.infts && infts.infts.length) renderInftGrid(infts.infts);
     renderBackendProofs(storage.records || [], infts.infts || []);
     renderTreasury(treasury, history.history || []);

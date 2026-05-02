@@ -21,6 +21,12 @@ import queue
 import threading
 import requests
 from dotenv import load_dotenv
+from integrations.execution_policy import (
+    PolicyViolation,
+    validate_contract_call,
+    validate_transfer,
+)
+from integrations.state_writer import write_activity
 
 load_dotenv()
 
@@ -238,7 +244,20 @@ def get_execution_status(execution_id: str) -> dict:
     return result
 
 
-def execute_transfer(to: str, amount: str, token: str = "ETH") -> str:
+def _record_policy_block(action: str, error: Exception) -> None:
+    write_activity("execution", "error", f"keeperhub {action} blocked: {str(error)[:90]}", {
+        "action": action,
+        "error": str(error),
+    })
+
+
+def execute_transfer(
+    to: str,
+    amount: str,
+    token: str = "ETH",
+    network: str = "sepolia",
+    token_address: str = None,
+) -> str:
     """
     Execute a direct token transfer via KeeperHub.
     Args:
@@ -248,11 +267,28 @@ def execute_transfer(to: str, amount: str, token: str = "ETH") -> str:
     Returns:
         execution_id as string.
     """
-    result = _call_tool("execute_transfer", {
-        "to": to,
+    try:
+        validate_transfer(
+            network=network,
+            recipient_address=to,
+            amount=amount,
+            token_address=token_address,
+        )
+    except PolicyViolation as e:
+        _record_policy_block("transfer", e)
+        raise
+
+    payload = {
+        "network": network,
+        "recipient_address": to,
         "amount": amount,
-        "token": token
-    })
+    }
+    if token_address:
+        payload["token_address"] = token_address
+    elif token and token.upper() != "ETH":
+        raise PolicyViolation("ERC-20 transfers must provide token_address")
+
+    result = _call_tool("execute_transfer", payload)
     execution_id = result.get("executionId") or result.get("id", "")
     print(f"[KeeperHub] Transfer execution: {execution_id}")
     return execution_id
@@ -262,7 +298,10 @@ def execute_contract_call(
     contract: str,
     abi: list,
     function_name: str,
-    args: list
+    args: list,
+    network: str = "sepolia",
+    value_wei: str = None,
+    gas_limit_multiplier: str = None,
 ) -> str:
     """
     Execute a smart contract function call via KeeperHub.
@@ -274,12 +313,31 @@ def execute_contract_call(
     Returns:
         execution_id as string.
     """
-    result = _call_tool("execute_contract_call", {
-        "contract": contract,
-        "abi": abi,
-        "function": function_name,
-        "args": args
-    })
+    try:
+        validate_contract_call(
+            network=network,
+            contract_address=contract,
+            function_name=function_name,
+            value_wei=value_wei,
+        )
+    except PolicyViolation as e:
+        _record_policy_block("contract_call", e)
+        raise
+
+    payload = {
+        "contract_address": contract,
+        "network": network,
+        "function_name": function_name,
+        "function_args": json.dumps(args or []),
+    }
+    if abi:
+        payload["abi"] = json.dumps(abi)
+    if value_wei:
+        payload["value"] = str(value_wei)
+    if gas_limit_multiplier:
+        payload["gas_limit_multiplier"] = str(gas_limit_multiplier)
+
+    result = _call_tool("execute_contract_call", payload)
     execution_id = result.get("executionId") or result.get("id", "")
     print(f"[KeeperHub] Contract call execution: {execution_id}")
     return execution_id

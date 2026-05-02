@@ -58,6 +58,10 @@ Open `.env` and fill in these values before running anything:
 | `WALLET_PRIVATE_KEY` | Your Sepolia testnet wallet private key |
 | `WALLET_ADDRESS` | Your Sepolia testnet wallet address |
 
+KeeperHub write execution is blocked by default. Keep
+`KEEPERHUB_LIVE_EXECUTION=false` until you have chosen allowed networks,
+contracts, functions, and spend caps in `.env`.
+
 ---
 
 ## 5. Generate AXL node keys

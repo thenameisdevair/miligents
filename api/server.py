@@ -53,6 +53,7 @@ from api.db import (
     get_activity,
 )
 from integrations.bridge_client import upload_data, mint_inft
+from integrations.execution_policy import get_policy
 from integrations.state_writer import (
     write_activity,
     write_agent_status,
@@ -128,6 +129,23 @@ def storage(limit: int = 20):
 @app.get("/api/tasks")
 def tasks(limit: int = 20):
     return {"tasks": get_keeperhub_tasks(limit=limit)}
+
+
+@app.get("/api/execution/policy")
+def execution_policy():
+    policy = get_policy()
+    return {
+        "policy": {
+            "live_execution": policy.live_execution,
+            "allowed_networks": sorted(policy.allowed_networks),
+            "allowed_contracts_count": len(policy.allowed_contracts),
+            "allowed_functions": sorted(policy.allowed_functions),
+            "max_tx_eth": str(policy.max_tx_eth),
+            "max_daily_spend_eth": str(policy.max_daily_spend_eth),
+            "allow_approvals": policy.allow_approvals,
+            "mainnet_confirmed": policy.mainnet_confirmed,
+        }
+    }
 
 
 # ─── iNFTs ────────────────────────────────────────────────────────────────────
