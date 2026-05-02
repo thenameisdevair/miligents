@@ -466,7 +466,8 @@ def write_keeperhub_task(
     execution_id: str = None,
     task_type: str = None,
     status: str = None,
-    tx_hash: str = None
+    tx_hash: str = None,
+    organism_id: str = None,
 ) -> None:
     """
     Record a KeeperHub workflow or execution event.
@@ -483,9 +484,18 @@ def write_keeperhub_task(
         conn = _get_conn()
         conn.execute(
             """INSERT INTO keeperhub_tasks
-               (agent_id, workflow_id, execution_id, task_type, status, tx_hash, timestamp)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (agent_id, workflow_id, execution_id, task_type, status, tx_hash, _now())
+               (agent_id, workflow_id, execution_id, task_type, status, tx_hash, timestamp, organism_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                agent_id,
+                workflow_id,
+                execution_id,
+                task_type,
+                status,
+                tx_hash,
+                _now(),
+                organism_id or DEFAULT_ORGANISM_ID,
+            )
         )
         conn.commit()
         conn.close()

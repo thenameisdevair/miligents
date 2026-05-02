@@ -13,6 +13,7 @@ from decimal import Decimal
 
 from integrations.state_writer import DEFAULT_ORGANISM_ID, _get_conn
 from integrations.wallet import get_native_balance
+from integrations.execution_policy import ExecutionPolicy, get_policy, policy_from_organism
 
 
 def _now() -> str:
@@ -93,6 +94,41 @@ def get_organism_policy(organism_id: str) -> dict | None:
     ).fetchone()
     conn.close()
     return _row_to_policy(row)
+
+
+def get_effective_execution_policy(organism_id: str) -> ExecutionPolicy:
+    """
+    Combine global env policy with organism policy.
+
+    The global env remains the operator-level arming switch; organism policy is
+    the owner-specific allowlist and spend cap.
+    """
+    organism_policy = get_organism_policy(organism_id)
+    if not organism_policy:
+        raise ValueError("organism policy not found")
+    global_policy = get_policy()
+    org_policy = policy_from_organism(organism_policy)
+    allowed_networks = global_policy.allowed_networks.intersection(org_policy.allowed_networks)
+    allowed_contracts = (
+        global_policy.allowed_contracts.intersection(org_policy.allowed_contracts)
+        if global_policy.allowed_contracts and org_policy.allowed_contracts
+        else global_policy.allowed_contracts or org_policy.allowed_contracts
+    )
+    allowed_functions = (
+        global_policy.allowed_functions.intersection(org_policy.allowed_functions)
+        if global_policy.allowed_functions and org_policy.allowed_functions
+        else global_policy.allowed_functions or org_policy.allowed_functions
+    )
+    return ExecutionPolicy(
+        live_execution=global_policy.live_execution and org_policy.live_execution,
+        allowed_networks=allowed_networks,
+        allowed_contracts=allowed_contracts,
+        allowed_functions=allowed_functions,
+        max_tx_eth=min(global_policy.max_tx_eth, org_policy.max_tx_eth),
+        max_daily_spend_eth=min(global_policy.max_daily_spend_eth, org_policy.max_daily_spend_eth),
+        allow_approvals=global_policy.allow_approvals and org_policy.allow_approvals,
+        mainnet_confirmed=global_policy.mainnet_confirmed and org_policy.mainnet_confirmed,
+    )
 
 
 def get_organism_funding(organism_id: str) -> list[dict]:

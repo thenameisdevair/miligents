@@ -25,9 +25,12 @@ try:
 except ModuleNotFoundError:
     load_dotenv = None
 from integrations.execution_policy import (
+    ExecutionPolicy,
     PolicyViolation,
     validate_contract_call,
+    validate_contract_call_with_policy,
     validate_transfer,
+    validate_transfer_with_policy,
 )
 from integrations.state_writer import write_activity
 
@@ -283,6 +286,8 @@ def execute_transfer(
     token: str = "ETH",
     network: str = "sepolia",
     token_address: str = None,
+    policy: ExecutionPolicy | None = None,
+    organism_id: str | None = None,
 ) -> str:
     """
     Execute a direct token transfer via KeeperHub.
@@ -294,12 +299,22 @@ def execute_transfer(
         execution_id as string.
     """
     try:
-        validate_transfer(
-            network=network,
-            recipient_address=to,
-            amount=amount,
-            token_address=token_address,
-        )
+        if policy:
+            validate_transfer_with_policy(
+                policy,
+                network=network,
+                recipient_address=to,
+                amount=amount,
+                token_address=token_address,
+                organism_id=organism_id,
+            )
+        else:
+            validate_transfer(
+                network=network,
+                recipient_address=to,
+                amount=amount,
+                token_address=token_address,
+            )
     except PolicyViolation as e:
         _record_policy_block("transfer", e)
         raise
@@ -330,6 +345,8 @@ def execute_contract_call(
     network: str = "sepolia",
     value_wei: str = None,
     gas_limit_multiplier: str = None,
+    policy: ExecutionPolicy | None = None,
+    organism_id: str | None = None,
 ) -> str:
     """
     Execute a smart contract function call via KeeperHub.
@@ -342,12 +359,22 @@ def execute_contract_call(
         execution_id as string.
     """
     try:
-        validate_contract_call(
-            network=network,
-            contract_address=contract,
-            function_name=function_name,
-            value_wei=value_wei,
-        )
+        if policy:
+            validate_contract_call_with_policy(
+                policy,
+                network=network,
+                contract_address=contract,
+                function_name=function_name,
+                value_wei=value_wei,
+                organism_id=organism_id,
+            )
+        else:
+            validate_contract_call(
+                network=network,
+                contract_address=contract,
+                function_name=function_name,
+                value_wei=value_wei,
+            )
     except PolicyViolation as e:
         _record_policy_block("contract_call", e)
         raise

@@ -68,6 +68,7 @@ from integrations.organisms import (
     assert_owner,
     check_funding,
     create_organism,
+    get_effective_execution_policy,
     get_organism_bundle,
     get_organism_funding,
     get_organism_policy,
@@ -141,6 +142,14 @@ class PolicyPatchRequest(BaseModel):
 class FundingTxRequest(BaseModel):
     tx_hash: str
     network: str | None = None
+
+
+class KeeperHubTransferRequest(BaseModel):
+    to: str | None = None
+    amount: str | None = None
+    network: str = "sepolia"
+    token: str = "ETH"
+    token_address: str | None = None
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────
@@ -339,6 +348,100 @@ def organism_policy_patch(organism_id: str, payload: PolicyPatchRequest, request
         return {"status": "ok", "policy": policy}
     except Exception as e:
         return {"status": "error", "error": str(e)}
+
+
+@app.post("/api/organisms/{organism_id}/keeperhub/test-transfer")
+def organism_keeperhub_test_transfer(
+    organism_id: str,
+    payload: KeeperHubTransferRequest,
+    request: Request,
+):
+    try:
+        session = _require_session(request)
+        organism = assert_owner(organism_id, session["owner_wallet"])
+        recipient = payload.to or os.getenv("WALLET_ADDRESS")
+        amount = payload.amount or os.getenv("KEEPERHUB_TEST_TRANSFER_ETH", "0.00001")
+        if not recipient:
+            return {"status": "error", "error": "recipient is required"}
+        if not organism.get("keeperhub_wallet_address"):
+            return {"status": "error", "error": "organism has no KeeperHub execution wallet"}
+
+        policy = get_effective_execution_policy(organism_id)
+        network = (payload.network or "sepolia").lower()
+        write_activity(
+            "execution",
+            "tool_call",
+            f"organism keeperhub transfer on {network}",
+            {"organism_id": organism_id},
+        )
+        execution_id = execute_transfer(
+            to=recipient,
+            amount=amount,
+            token=payload.token,
+            network=network,
+            token_address=payload.token_address,
+            policy=policy,
+            organism_id=organism_id,
+        )
+        if not execution_id:
+            raise RuntimeError("KeeperHub returned empty execution_id")
+        write_keeperhub_task(
+            agent_id="execution",
+            execution_id=execution_id,
+            task_type=f"organism_direct_transfer_{network}",
+            status="running",
+            organism_id=organism_id,
+        )
+
+        status = {"status": "submitted"}
+        for _ in range(8):
+            try:
+                status = get_direct_execution_status(execution_id)
+            except Exception as e:
+                status = {"status": "submitted", "poll_error": str(e)}
+            if status.get("status") in ("completed", "failed"):
+                break
+            time.sleep(3)
+
+        tx_hash = status.get("transactionHash") or status.get("tx_hash")
+        task_status = status.get("status", "submitted")
+        write_keeperhub_task(
+            agent_id="execution",
+            execution_id=execution_id,
+            task_type=f"organism_direct_transfer_{network}",
+            status=task_status,
+            tx_hash=tx_hash,
+            organism_id=organism_id,
+        )
+        if tx_hash:
+            write_activity("execution", "tool_result", f"organism transfer tx {tx_hash[:10]}...", {
+                "organism_id": organism_id,
+                "tx_hash": tx_hash,
+            })
+
+        return {
+            "status": task_status,
+            "organism_id": organism_id,
+            "network": network,
+            "amount": amount,
+            "recipient": recipient,
+            "execution_id": execution_id,
+            "tx_hash": tx_hash,
+            "transaction_link": status.get("transactionLink"),
+            "keeperhub_status": status,
+        }
+    except Exception as e:
+        err = str(e)
+        write_keeperhub_task(
+            agent_id="execution",
+            task_type=f"organism_direct_transfer_{payload.network}",
+            status="blocked" if "execution" in err.lower() or "allowed" in err.lower() else "failed",
+            organism_id=organism_id,
+        )
+        write_activity("execution", "error", f"organism keeperhub transfer failed: {err[:90]}", {
+            "organism_id": organism_id,
+        })
+        return {"status": "error", "organism_id": organism_id, "error": err}
 
 
 # ─── Agents ───────────────────────────────────────────────────────────────────

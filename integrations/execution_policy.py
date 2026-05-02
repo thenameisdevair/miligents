@@ -89,6 +89,33 @@ def get_policy() -> ExecutionPolicy:
     )
 
 
+def policy_from_organism(record: dict) -> ExecutionPolicy:
+    """Build an ExecutionPolicy from an organism_policy database record."""
+    def as_set(value) -> set[str]:
+        if value is None:
+            return set()
+        if isinstance(value, (list, tuple, set)):
+            return {str(v).strip().lower() for v in value if str(v).strip()}
+        return {item.strip().lower() for item in str(value).split(",") if item.strip()}
+
+    def as_decimal(name: str, default: str) -> Decimal:
+        try:
+            return Decimal(str(record.get(name) or default))
+        except InvalidOperation as e:
+            raise PolicyViolation(f"{name} must be a decimal value") from e
+
+    return ExecutionPolicy(
+        live_execution=bool(record.get("live_execution")),
+        allowed_networks=as_set(record.get("allowed_networks") or {"sepolia"}),
+        allowed_contracts=as_set(record.get("allowed_contracts")),
+        allowed_functions=as_set(record.get("allowed_functions")),
+        max_tx_eth=as_decimal("max_tx_eth", "0.001"),
+        max_daily_spend_eth=as_decimal("max_daily_spend_eth", "0.005"),
+        allow_approvals=bool(record.get("allow_approvals")),
+        mainnet_confirmed=bool(record.get("mainnet_confirmed")),
+    )
+
+
 def _normalise_address(value: str | None) -> str:
     return str(value or "").strip().lower()
 
@@ -115,14 +142,16 @@ def _parse_wei_as_eth(value: str | int | None) -> Decimal:
         raise PolicyViolation("value must be an integer wei value") from e
 
 
-def _spend_file() -> Path:
+def _spend_file(organism_id: str | None = None) -> Path:
     state_dir = Path(os.getenv("STATE_DIR", "./state"))
     day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    return state_dir / f"keeperhub_spend_{day}.json"
+    suffix = organism_id or "global"
+    safe_suffix = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in suffix)
+    return state_dir / f"keeperhub_spend_{safe_suffix}_{day}.json"
 
 
-def _read_reserved_spend() -> Decimal:
-    path = _spend_file()
+def _read_reserved_spend(organism_id: str | None = None) -> Decimal:
+    path = _spend_file(organism_id)
     if not path.exists():
         return Decimal("0")
     try:
@@ -132,16 +161,21 @@ def _read_reserved_spend() -> Decimal:
         raise PolicyViolation(f"could not read daily spend ledger: {e}") from e
 
 
-def _reserve_spend(amount_eth: Decimal, policy: ExecutionPolicy, reason: str) -> None:
+def _reserve_spend(
+    amount_eth: Decimal,
+    policy: ExecutionPolicy,
+    reason: str,
+    organism_id: str | None = None,
+) -> None:
     if amount_eth <= 0:
         return
-    current = _read_reserved_spend()
+    current = _read_reserved_spend(organism_id)
     next_total = current + amount_eth
     if next_total > policy.max_daily_spend_eth:
         raise PolicyViolation(
             f"daily spend {next_total} ETH would exceed cap {policy.max_daily_spend_eth} ETH"
         )
-    path = _spend_file()
+    path = _spend_file(organism_id)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({
@@ -179,7 +213,24 @@ def validate_transfer(
     are allowed only when token_address is set; amount-unit risk must be handled
     by the caller's token-specific policy before enabling live mode.
     """
-    policy = get_policy()
+    return validate_transfer_with_policy(
+        get_policy(),
+        network=network,
+        recipient_address=recipient_address,
+        amount=amount,
+        token_address=token_address,
+    )
+
+
+def validate_transfer_with_policy(
+    policy: ExecutionPolicy,
+    network: str,
+    recipient_address: str,
+    amount: str,
+    token_address: str | None = None,
+    organism_id: str | None = None,
+) -> dict:
+    """Validate a direct transfer against an explicit organism policy."""
     normalised_network = _check_common(policy, network)
     if not _normalise_address(recipient_address).startswith("0x"):
         raise PolicyViolation("recipient_address must be a 0x address")
@@ -189,7 +240,7 @@ def validate_transfer(
         native_amount = _parse_amount_eth(amount)
         if native_amount > policy.max_tx_eth:
             raise PolicyViolation(f"transfer amount {native_amount} ETH exceeds max {policy.max_tx_eth} ETH")
-        _reserve_spend(native_amount, policy, "transfer")
+        _reserve_spend(native_amount, policy, "transfer", organism_id=organism_id)
 
     return {
         "action": "transfer",
@@ -209,7 +260,24 @@ def validate_contract_call(
     value_wei: str | int | None = None,
 ) -> dict:
     """Validate a KeeperHub contract call before it can reach KeeperHub."""
-    policy = get_policy()
+    return validate_contract_call_with_policy(
+        get_policy(),
+        network=network,
+        contract_address=contract_address,
+        function_name=function_name,
+        value_wei=value_wei,
+    )
+
+
+def validate_contract_call_with_policy(
+    policy: ExecutionPolicy,
+    network: str,
+    contract_address: str,
+    function_name: str,
+    value_wei: str | int | None = None,
+    organism_id: str | None = None,
+) -> dict:
+    """Validate a KeeperHub contract call against an explicit organism policy."""
     normalised_network = _check_common(policy, network)
     contract = _normalise_address(contract_address)
     function = str(function_name or "").strip()
@@ -227,7 +295,7 @@ def validate_contract_call(
     value_eth = _parse_wei_as_eth(value_wei)
     if value_eth > policy.max_tx_eth:
         raise PolicyViolation(f"call value {value_eth} ETH exceeds max {policy.max_tx_eth} ETH")
-    _reserve_spend(value_eth, policy, "contract_call")
+    _reserve_spend(value_eth, policy, "contract_call", organism_id=organism_id)
 
     return {
         "action": "contract_call",
