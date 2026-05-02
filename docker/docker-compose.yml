@@ -111,7 +111,7 @@ services:
     environment:
       - STATE_DIR=/app/state
       - BRIDGE_URL=http://bridge:3100
-      - KEEPERHUB_MCP_URL=http://host.docker.internal:3001
+      - KEEPERHUB_MCP_URL=http://keeperhub:3000
     volumes:
       - state-data:/app/state
     networks:
@@ -119,6 +119,8 @@ services:
     depends_on:
       bridge:
         condition: service_healthy
+      keeperhub:
+        condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
