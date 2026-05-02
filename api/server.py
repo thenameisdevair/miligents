@@ -64,6 +64,16 @@ from integrations.auth import (
 from integrations.bridge_client import upload_data, mint_inft
 from integrations.execution_policy import get_policy
 from integrations.keeperhub import execute_transfer, get_direct_execution_status
+from integrations.organisms import (
+    assert_owner,
+    create_organism,
+    get_organism_bundle,
+    get_organism_funding,
+    get_organism_policy,
+    list_organisms,
+    patch_policy,
+    update_organism_status,
+)
 from integrations.state_writer import (
     write_activity,
     write_agent_status,
@@ -100,6 +110,32 @@ class AuthVerifyRequest(BaseModel):
     signature: str
 
 
+class OrganismCreateRequest(BaseModel):
+    name: str | None = None
+    domains: list[str] = []
+    risk_profile: str = "balanced"
+    max_child_agents: int = 3
+    treasury_target_amount: str = "0"
+    treasury_asset: str = "ETH"
+    network: str = "sepolia"
+    allowed_networks: list[str] | None = None
+    allowed_contracts: list[str] | None = None
+    allowed_functions: list[str] | None = None
+    max_tx_eth: str | None = None
+    max_daily_spend_eth: str | None = None
+
+
+class PolicyPatchRequest(BaseModel):
+    live_execution: bool | None = None
+    allowed_networks: list[str] | None = None
+    allowed_contracts: list[str] | None = None
+    allowed_functions: list[str] | None = None
+    max_tx_eth: str | None = None
+    max_daily_spend_eth: str | None = None
+    allow_approvals: bool | None = None
+    mainnet_confirmed: bool | None = None
+
+
 # ─── Health ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/health")
@@ -121,6 +157,19 @@ def _session_token_from_request(request: Request) -> str | None:
     if auth_header.lower().startswith("bearer "):
         return auth_header.split(" ", 1)[1].strip()
     return request.cookies.get(SESSION_COOKIE)
+
+
+def _require_session(request: Request) -> dict:
+    session = get_session(_session_token_from_request(request))
+    if not session:
+        raise PermissionError("wallet session required")
+    return session
+
+
+def _model_dump(model: BaseModel) -> dict:
+    if hasattr(model, "model_dump"):
+        return model.model_dump()
+    return model.dict()
 
 
 @app.get("/api/auth/nonce")
@@ -171,6 +220,96 @@ def auth_logout(request: Request, response: Response):
     revoke_session(_session_token_from_request(request))
     response.delete_cookie(SESSION_COOKIE)
     return {"status": "ok"}
+
+
+# ─── Organisms ────────────────────────────────────────────────────────────────
+
+@app.post("/api/organisms")
+def organism_create(payload: OrganismCreateRequest, request: Request):
+    try:
+        session = _require_session(request)
+        bundle = create_organism(
+            owner_wallet=session["owner_wallet"],
+            owner_chain_id=session.get("chain_id"),
+            payload=_model_dump(payload),
+        )
+        return {"status": "ok", **bundle}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.get("/api/organisms")
+def organisms(request: Request):
+    session = get_session(_session_token_from_request(request))
+    owner_wallet = session["owner_wallet"] if session else None
+    return {"organisms": list_organisms(owner_wallet=owner_wallet)}
+
+
+@app.get("/api/organisms/{organism_id}")
+def organism_get(organism_id: str, request: Request):
+    try:
+        session = _require_session(request)
+        assert_owner(organism_id, session["owner_wallet"])
+        bundle = get_organism_bundle(organism_id)
+        if not bundle:
+            return {"status": "error", "error": "organism not found"}
+        return {"status": "ok", **bundle}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/api/organisms/{organism_id}/pause")
+def organism_pause(organism_id: str, request: Request):
+    try:
+        session = _require_session(request)
+        assert_owner(organism_id, session["owner_wallet"])
+        return {"status": "ok", **update_organism_status(organism_id, "paused")}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/api/organisms/{organism_id}/resume")
+def organism_resume(organism_id: str, request: Request):
+    try:
+        session = _require_session(request)
+        assert_owner(organism_id, session["owner_wallet"])
+        return {"status": "ok", **update_organism_status(organism_id, "active")}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.get("/api/organisms/{organism_id}/funding")
+def organism_funding(organism_id: str, request: Request):
+    try:
+        session = _require_session(request)
+        assert_owner(organism_id, session["owner_wallet"])
+        return {"funding": get_organism_funding(organism_id)}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.get("/api/organisms/{organism_id}/policy")
+def organism_policy_get(organism_id: str, request: Request):
+    try:
+        session = _require_session(request)
+        assert_owner(organism_id, session["owner_wallet"])
+        return {"policy": get_organism_policy(organism_id)}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.patch("/api/organisms/{organism_id}/policy")
+def organism_policy_patch(organism_id: str, payload: PolicyPatchRequest, request: Request):
+    try:
+        session = _require_session(request)
+        assert_owner(organism_id, session["owner_wallet"])
+        policy = patch_policy(
+            organism_id,
+            {k: v for k, v in _model_dump(payload).items() if v is not None},
+        )
+        return {"status": "ok", "policy": policy}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 
 # ─── Agents ───────────────────────────────────────────────────────────────────
