@@ -172,6 +172,8 @@ def keeperhub_test_transfer(network: str = "sepolia", amount: str = None, to: st
             token="ETH",
             network=network,
         )
+        if not execution_id:
+            raise RuntimeError("KeeperHub returned empty execution_id")
         write_keeperhub_task(
             agent_id="execution",
             execution_id=execution_id,

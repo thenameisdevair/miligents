@@ -111,15 +111,21 @@ def _call_tool(tool_name: str, arguments: dict) -> dict:
     if "error" in result:
         raise RuntimeError(f"KeeperHub MCP error: {result['error']}")
 
-    content = result.get("result", {}).get("content", [])
+    tool_result = result.get("result", {})
+    content = tool_result.get("content", [])
     if content and content[0].get("type") == "text":
         text = content[0]["text"]
+        if tool_result.get("isError") or text.startswith("Error:"):
+            raise RuntimeError(text)
         try:
             return json.loads(text)
         except json.JSONDecodeError:
             return {"result": text}
 
-    return result.get("result", {})
+    if tool_result.get("isError"):
+        raise RuntimeError(json.dumps(tool_result))
+
+    return tool_result
 
 
 def health_check() -> bool:
@@ -310,6 +316,8 @@ def execute_transfer(
 
     result = _call_tool("execute_transfer", payload)
     execution_id = result.get("executionId") or result.get("execution_id") or result.get("id", "")
+    if not execution_id:
+        raise RuntimeError(f"KeeperHub transfer returned no executionId: {result}")
     print(f"[KeeperHub] Transfer execution: {execution_id}")
     return execution_id
 
@@ -359,6 +367,8 @@ def execute_contract_call(
 
     result = _call_tool("execute_contract_call", payload)
     execution_id = result.get("executionId") or result.get("execution_id") or result.get("id", "")
+    if not execution_id and "result" not in result:
+        raise RuntimeError(f"KeeperHub contract call returned no executionId: {result}")
     print(f"[KeeperHub] Contract call execution: {execution_id}")
     return execution_id
 
