@@ -1298,6 +1298,14 @@ setInterval(tickClock,1000); tickClock();
 const storageScanUrl = hash => `https://storagescan-galileo.0g.ai/?q=${encodeURIComponent(hash)}`;
 const txScanUrl = tx => `https://chainscan-galileo.0g.ai/tx/${encodeURIComponent(tx)}`;
 
+function keeperTaskTxUrl(task) {
+  const type = String(task?.task_type || '').toLowerCase();
+  if (type.includes('sepolia')) return `https://sepolia.etherscan.io/tx/${encodeURIComponent(task.tx_hash)}`;
+  if (type.includes('base')) return `https://basescan.org/tx/${encodeURIComponent(task.tx_hash)}`;
+  if (type.includes('ethereum') || type.includes('mainnet')) return `https://etherscan.io/tx/${encodeURIComponent(task.tx_hash)}`;
+  return txScanUrl(task.tx_hash);
+}
+
 function shortHash(hash) {
   if (!hash || hash.length < 16) return hash || '—';
   return hash.slice(0, 10) + '…' + hash.slice(-8);
@@ -1630,7 +1638,7 @@ function renderKeeperTasks(tasks, policy = null) {
   tbody.innerHTML = tasks.slice(0, 8).map(t => {
     const statusCls = ['complete', 'completed', 'success', 'created', 'running'].includes(t.status) ? 'exec' : ['failed', 'error'].includes(t.status) ? 'pending' : 'queued';
     const statusLabel = t.status || 'queued';
-    const txLink = t.tx_hash ? `<a class="tx" href="${txScanUrl(t.tx_hash)}" target="_blank" rel="noopener">${t.tx_hash.slice(0,8)}…${t.tx_hash.slice(-4)}</a>` : '<span class="muted">—</span>';
+    const txLink = t.tx_hash ? `<a class="tx" href="${keeperTaskTxUrl(t)}" target="_blank" rel="noopener">${t.tx_hash.slice(0,8)}…${t.tx_hash.slice(-4)}</a>` : '<span class="muted">—</span>';
     const wfId = t.workflow_id || t.execution_id || `task-${t.id}`;
     return `<tr>
       <td class="id" title="${escapeHtml(wfId)}">#${t.id}</td>
