@@ -116,6 +116,29 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS keeperhub_wallet_pool_status_idx
             ON keeperhub_wallet_pool(status, network);
 
+        CREATE TABLE IF NOT EXISTS auth_nonces (
+            nonce          TEXT PRIMARY KEY,
+            address        TEXT NOT NULL,
+            chain_id       INTEGER,
+            message        TEXT NOT NULL,
+            issued_at      TEXT NOT NULL,
+            expires_at     TEXT NOT NULL,
+            consumed_at    TEXT
+        );
+        CREATE INDEX IF NOT EXISTS auth_nonces_address_idx
+            ON auth_nonces(address, issued_at DESC);
+
+        CREATE TABLE IF NOT EXISTS auth_sessions (
+            session_token  TEXT PRIMARY KEY,
+            owner_wallet   TEXT NOT NULL,
+            chain_id       INTEGER,
+            created_at     TEXT NOT NULL,
+            expires_at     TEXT NOT NULL,
+            revoked_at     TEXT
+        );
+        CREATE INDEX IF NOT EXISTS auth_sessions_owner_idx
+            ON auth_sessions(owner_wallet, created_at DESC);
+
         CREATE TABLE IF NOT EXISTS agents (
             agent_id      TEXT PRIMARY KEY,
             status        TEXT NOT NULL DEFAULT 'idle',

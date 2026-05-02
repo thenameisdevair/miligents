@@ -30,10 +30,11 @@ import time
 import requests
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 import os
 
 import sys
@@ -52,6 +53,13 @@ from api.db import (
     get_summary_stats,
     get_cycles,
     get_activity,
+)
+from integrations.auth import (
+    SESSION_COOKIE,
+    create_nonce,
+    get_session,
+    revoke_session,
+    verify_wallet_signature,
 )
 from integrations.bridge_client import upload_data, mint_inft
 from integrations.execution_policy import get_policy
@@ -82,6 +90,14 @@ app.add_middleware(
 
 BRIDGE_URL = os.getenv("BRIDGE_URL", "http://localhost:3100")
 KEEPERHUB_MCP_URL = os.getenv("KEEPERHUB_MCP_URL", "http://localhost:3001")
+FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:8081")
+
+
+class AuthVerifyRequest(BaseModel):
+    address: str
+    chain_id: int = 1
+    message: str
+    signature: str
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────
@@ -96,6 +112,65 @@ def frontend():
     """Serve the MiliGents frontend."""
     html_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "MiliGents v2.html")
     return FileResponse(os.path.abspath(html_path))
+
+
+# ─── Wallet Auth ──────────────────────────────────────────────────────────────
+
+def _session_token_from_request(request: Request) -> str | None:
+    auth_header = request.headers.get("authorization") or ""
+    if auth_header.lower().startswith("bearer "):
+        return auth_header.split(" ", 1)[1].strip()
+    return request.cookies.get(SESSION_COOKIE)
+
+
+@app.get("/api/auth/nonce")
+def auth_nonce(address: str, chain_id: int = 1):
+    try:
+        return {"auth": create_nonce(address, chain_id=chain_id, uri=FRONTEND_ORIGIN)}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/api/auth/verify")
+def auth_verify(payload: AuthVerifyRequest, response: Response):
+    try:
+        session = verify_wallet_signature(
+            address=payload.address,
+            chain_id=payload.chain_id,
+            message=payload.message,
+            signature=payload.signature,
+        )
+        response.set_cookie(
+            SESSION_COOKIE,
+            session["session_token"],
+            httponly=True,
+            secure=os.getenv("AUTH_COOKIE_SECURE", "false").lower() == "true",
+            samesite=os.getenv("AUTH_COOKIE_SAMESITE", "lax"),
+            max_age=7 * 24 * 60 * 60,
+        )
+        return {
+            "status": "ok",
+            "session": {
+                "owner_wallet": session["owner_wallet"],
+                "chain_id": session["chain_id"],
+                "expires_at": session["expires_at"],
+            },
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.get("/api/auth/session")
+def auth_session(request: Request):
+    session = get_session(_session_token_from_request(request))
+    return {"authenticated": bool(session), "session": session}
+
+
+@app.post("/api/auth/logout")
+def auth_logout(request: Request, response: Response):
+    revoke_session(_session_token_from_request(request))
+    response.delete_cookie(SESSION_COOKIE)
+    return {"status": "ok"}
 
 
 # ─── Agents ───────────────────────────────────────────────────────────────────

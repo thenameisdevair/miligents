@@ -7,3 +7,4 @@ tavily-python
 requests
 fastapi
 uvicorn[standard]
+eth-account>=0.13.0
