@@ -46,6 +46,7 @@ from api.db import (
     get_axl_messages,
     get_storage_records,
     get_keeperhub_tasks,
+    get_organism_executions,
     get_infts,
     get_inft_count,
     get_latest_treasury,
@@ -73,6 +74,7 @@ from integrations.organisms import (
     get_organism_funding,
     get_organism_policy,
     list_organisms,
+    patch_organism,
     patch_policy,
     record_funding_tx,
     update_organism_status,
@@ -84,6 +86,7 @@ from integrations.state_writer import (
     write_cycle_complete,
     write_cycle_start,
     write_inft,
+    write_organism_execution,
     write_storage_record,
     write_keeperhub_task,
     write_treasury_snapshot,
@@ -126,6 +129,15 @@ class OrganismCreateRequest(BaseModel):
     allowed_functions: list[str] | None = None
     max_tx_eth: str | None = None
     max_daily_spend_eth: str | None = None
+
+
+class OrganismPatchRequest(BaseModel):
+    name: str | None = None
+    domains: list[str] | None = None
+    risk_profile: str | None = None
+    max_child_agents: int | None = None
+    treasury_target_amount: str | None = None
+    treasury_asset: str | None = None
 
 
 class PolicyPatchRequest(BaseModel):
@@ -274,6 +286,20 @@ def organism_get(organism_id: str, request: Request):
         return {"status": "error", "error": str(e)}
 
 
+@app.patch("/api/organisms/{organism_id}")
+def organism_patch(organism_id: str, payload: OrganismPatchRequest, request: Request):
+    try:
+        session = _require_session(request)
+        assert_owner(organism_id, session["owner_wallet"])
+        bundle = patch_organism(
+            organism_id,
+            {k: v for k, v in _model_dump(payload).items() if v is not None},
+        )
+        return {"status": "ok", **bundle}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 @app.post("/api/organisms/{organism_id}/pause")
 def organism_pause(organism_id: str, request: Request):
     try:
@@ -392,6 +418,16 @@ def organism_keeperhub_test_transfer(
             status="running",
             organism_id=organism_id,
         )
+        write_organism_execution(
+            organism_id=organism_id,
+            agent_id="execution",
+            network=network,
+            action_type="direct_transfer",
+            execution_id=execution_id,
+            status="running",
+            amount_eth=amount,
+            details={"recipient": recipient, "token": payload.token},
+        )
 
         status = {"status": "submitted"}
         for _ in range(8):
@@ -412,6 +448,17 @@ def organism_keeperhub_test_transfer(
             status=task_status,
             tx_hash=tx_hash,
             organism_id=organism_id,
+        )
+        write_organism_execution(
+            organism_id=organism_id,
+            agent_id="execution",
+            network=network,
+            action_type="direct_transfer",
+            execution_id=execution_id,
+            tx_hash=tx_hash,
+            status=task_status,
+            amount_eth=amount,
+            details={"recipient": recipient, "token": payload.token},
         )
         if tx_hash:
             write_activity("execution", "tool_result", f"organism transfer tx {tx_hash[:10]}...", {
@@ -437,6 +484,15 @@ def organism_keeperhub_test_transfer(
             task_type=f"organism_direct_transfer_{payload.network}",
             status="blocked" if "execution" in err.lower() or "allowed" in err.lower() else "failed",
             organism_id=organism_id,
+        )
+        write_organism_execution(
+            organism_id=organism_id,
+            agent_id="execution",
+            network=payload.network,
+            action_type="direct_transfer",
+            status="blocked" if "execution" in err.lower() or "allowed" in err.lower() else "failed",
+            amount_eth=payload.amount,
+            details={"error": err},
         )
         write_activity("execution", "error", f"organism keeperhub transfer failed: {err[:90]}", {
             "organism_id": organism_id,
@@ -478,6 +534,11 @@ def storage(limit: int = 20, organism_id: str = None):
 @app.get("/api/tasks")
 def tasks(limit: int = 20, organism_id: str = None):
     return {"tasks": get_keeperhub_tasks(limit=limit, organism_id=organism_id)}
+
+
+@app.get("/api/organism-executions")
+def organism_executions(limit: int = 20, organism_id: str = None):
+    return {"executions": get_organism_executions(limit=limit, organism_id=organism_id)}
 
 
 @app.get("/api/execution/policy")

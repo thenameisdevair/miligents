@@ -321,6 +321,35 @@ def _ensure_default_organism(conn: sqlite3.Connection) -> None:
             now,
         ),
     )
+    _ensure_env_keeperhub_wallet_pool(conn, now)
+
+
+def _ensure_env_keeperhub_wallet_pool(conn: sqlite3.Connection, now: str) -> None:
+    """Seed explicitly configured KeeperHub wallet pool entries.
+
+    Format:
+        KEEPERHUB_WALLET_POOL=sepolia:0xabc...:wallet-a,base:0xdef...:wallet-b
+
+    This intentionally does not auto-pool WALLET_ADDRESS. Production organisms
+    must use explicitly provisioned execution wallets.
+    """
+    raw = os.getenv("KEEPERHUB_WALLET_POOL", "").strip()
+    if not raw:
+        return
+    for item in raw.split(","):
+        parts = [p.strip() for p in item.split(":")]
+        if len(parts) < 2:
+            continue
+        network, wallet_address = parts[0].lower(), parts[1]
+        label = parts[2] if len(parts) > 2 and parts[2] else f"{network}-{wallet_address[-6:]}"
+        if not wallet_address.startswith("0x"):
+            continue
+        conn.execute(
+            """INSERT OR IGNORE INTO keeperhub_wallet_pool
+               (wallet_address, wallet_label, network, status, assigned_organism_id, created_at, updated_at)
+               VALUES (?, ?, ?, 'available', NULL, ?, ?)""",
+            (wallet_address.lower(), label, network, now, now),
+        )
 
 
 def _now() -> str:
@@ -540,6 +569,44 @@ def write_keeperhub_task(
         conn.close()
     except Exception as e:
         print(f"[StateWriter] write_keeperhub_task failed: {e}")
+
+
+def write_organism_execution(
+    organism_id: str,
+    agent_id: str,
+    network: str = None,
+    action_type: str = None,
+    execution_id: str = None,
+    tx_hash: str = None,
+    status: str = None,
+    amount_eth: str = None,
+    details: dict = None,
+) -> None:
+    """Record an organism-scoped autonomous execution event."""
+    try:
+        conn = _get_conn()
+        conn.execute(
+            """INSERT INTO organism_execution
+               (organism_id, agent_id, network, action_type, execution_id, tx_hash,
+                status, amount_eth, details, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                organism_id or _read_current_organism(),
+                agent_id,
+                network,
+                action_type,
+                execution_id,
+                tx_hash,
+                status,
+                amount_eth,
+                json.dumps(details or {}),
+                _now(),
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[StateWriter] write_organism_execution failed: {e}")
 
 
 # ─── iNFTs ────────────────────────────────────────────────────────────────────

@@ -178,6 +178,34 @@ def get_keeperhub_tasks(limit: int = 20, organism_id: str = None) -> list:
     return _rows_to_list(rows)
 
 
+def get_organism_executions(limit: int = 20, organism_id: str = None) -> list:
+    """Get organism execution audit records."""
+    conn = _get_conn()
+    if not conn:
+        return []
+    if organism_id:
+        rows = conn.execute(
+            """SELECT * FROM organism_execution
+               WHERE organism_id = ?
+               ORDER BY timestamp DESC, id DESC LIMIT ?""",
+            (organism_id, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM organism_execution ORDER BY timestamp DESC, id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    conn.close()
+    results = _rows_to_list(rows)
+    for row in results:
+        if row.get("details"):
+            try:
+                row["details"] = json.loads(row["details"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+    return results
+
+
 # ─── iNFTs ────────────────────────────────────────────────────────────────────
 
 def get_infts(limit: int = 20, organism_id: str = None) -> list:

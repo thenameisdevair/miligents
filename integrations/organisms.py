@@ -253,6 +253,50 @@ def get_organism_bundle(organism_id: str) -> dict | None:
     }
 
 
+def patch_organism(organism_id: str, patch: dict) -> dict:
+    """Update mutable organism configuration fields."""
+    allowed = {
+        "name",
+        "risk_profile",
+        "max_child_agents",
+        "domains",
+        "treasury_target_amount",
+        "treasury_asset",
+    }
+    fields = []
+    values = []
+    for key, value in patch.items():
+        if key not in allowed or value is None:
+            continue
+        if key == "domains":
+            value = _json_list(value)
+        elif key == "max_child_agents":
+            value = int(value)
+            if value < 1:
+                raise ValueError("max_child_agents must be at least 1")
+        elif key == "treasury_target_amount":
+            if Decimal(str(value)) < 0:
+                raise ValueError("treasury_target_amount cannot be negative")
+            value = str(value)
+        fields.append(f"{key} = ?")
+        values.append(value)
+
+    if not fields:
+        return get_organism_bundle(organism_id)
+
+    fields.append("updated_at = ?")
+    values.append(_now())
+    values.append(organism_id)
+    conn = _get_conn()
+    conn.execute(
+        f"UPDATE organisms SET {', '.join(fields)} WHERE organism_id = ?",
+        values,
+    )
+    conn.commit()
+    conn.close()
+    return get_organism_bundle(organism_id)
+
+
 def check_funding(organism_id: str) -> dict:
     conn = _get_conn()
     row = conn.execute(
