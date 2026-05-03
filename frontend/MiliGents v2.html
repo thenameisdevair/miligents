@@ -1510,7 +1510,10 @@ function renderDeployState() {
     creating_organism: '· creating organism',
     needs_execution_wallet: '· execution wallet pending',
     needs_funding: '· needs funding',
+    funded: '· funded',
+    funding_detected: '· funding detected',
     active: '· active',
+    paused: '· paused',
     error: '· action needed',
   }[deployState.status] || '· ready';
   if (status) status.textContent = statusText;
@@ -1522,7 +1525,10 @@ function renderDeployState() {
     creating_organism: 'Creating organism...',
     needs_execution_wallet: 'Execution wallet pending',
     needs_funding: 'Check funding',
+    funded: 'Activate organism',
+    funding_detected: 'Activate organism',
     active: 'Open dashboard',
+    paused: 'Resume organism',
     error: 'Retry',
   }[deployState.status] || 'Create organism';
   btn.textContent = buttonText;
@@ -1534,7 +1540,7 @@ function renderDeployState() {
       right.textContent = deployState.error.slice(0, 48);
     } else if (deposit) {
       left.textContent = 'FUND EXECUTION WALLET';
-      right.textContent = truncateAddr(deposit) + ' · ' + (funding.network || 'network');
+      right.textContent = truncateAddr(deposit) + ' · agents spend only within policy';
     } else if (deployState.session) {
       left.textContent = 'OWNER VERIFIED';
       right.textContent = 'READY TO CREATE ORGANISM';
@@ -1543,6 +1549,22 @@ function renderDeployState() {
       right.textContent = 'NO FUNDS MOVE DURING SIGN-IN';
     }
   }
+}
+
+async function refreshOrganismDetails(organismId) {
+  if (!organismId) return null;
+  const details = await fetch(`${API}/api/organisms/${encodeURIComponent(organismId)}`, { credentials: 'include' }).then(r => r.json());
+  if (details.status === 'ok') {
+    setDeployState({
+      status: details.organism.status || 'active',
+      organism: details.organism,
+      funding: details.funding || [],
+      error: null,
+    });
+    return details;
+  }
+  if (details.error) setDeployState({ status: 'error', error: details.error });
+  return null;
 }
 
 async function loadAuthSession() {
@@ -1660,17 +1682,60 @@ async function loadOwnedOrganisms() {
     const organism = (data.organisms || []).find(o => o.organism_id === selectedId) || (data.organisms || [])[0];
     if (!organism) return;
     localStorage.setItem('mg-active-organism', organism.organism_id);
-    const details = await fetch(`${API}/api/organisms/${encodeURIComponent(organism.organism_id)}`, { credentials: 'include' }).then(r => r.json());
-    if (details.status === 'ok') {
-      setDeployState({
-        status: details.organism.status || 'active',
-        organism: details.organism,
-        funding: details.funding || [],
-        error: null,
-      });
-    }
+    await refreshOrganismDetails(organism.organism_id);
   } catch (e) {
     console.warn('[MiliGents] organism session load failed', e);
+  }
+}
+
+async function checkFundingForActiveOrganism() {
+  const organismId = activeOrganismId();
+  if (!organismId) {
+    setDeployState({ status: 'error', error: 'Select or create an organism first' });
+    return;
+  }
+  try {
+    setDeployState({ error: null });
+    const res = await fetch(`${API}/api/organisms/${encodeURIComponent(organismId)}/funding/check`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    const data = await res.json();
+    if (data.status !== 'ok') throw new Error(data.error || 'Funding check failed');
+    setDeployState({
+      status: data.organism.status === 'funded' ? 'funding_detected' : data.organism.status,
+      organism: data.organism,
+      funding: data.funding || [],
+      error: null,
+    });
+    await fetchAndRender();
+  } catch (e) {
+    setDeployState({ status: 'error', error: e.message || String(e) });
+  }
+}
+
+async function activateActiveOrganism() {
+  const organismId = activeOrganismId();
+  if (!organismId) {
+    setDeployState({ status: 'error', error: 'Select or create an organism first' });
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/api/organisms/${encodeURIComponent(organismId)}/resume`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    const data = await res.json();
+    if (data.status !== 'ok') throw new Error(data.error || 'Activation failed');
+    setDeployState({
+      status: data.organism.status || 'active',
+      organism: data.organism,
+      funding: data.funding || [],
+      error: null,
+    });
+    await fetchAndRender();
+  } catch (e) {
+    setDeployState({ status: 'error', error: e.message || String(e) });
   }
 }
 
@@ -1678,7 +1743,8 @@ async function handleDeployAction() {
   if (!deployState.session) return connectAndSignOwnerWallet();
   if (deployState.status === 'signed_ready_to_deploy' || deployState.status === 'error') return createOrganismFromDeploy();
   if (deployState.status === 'active') return go('dashboard');
-  if (deployState.status === 'needs_funding') return loadOwnedOrganisms();
+  if (deployState.status === 'needs_funding') return checkFundingForActiveOrganism();
+  if (deployState.status === 'funded' || deployState.status === 'funding_detected' || deployState.status === 'paused') return activateActiveOrganism();
 }
 
 const deployActionBtn = document.getElementById('deploy-action');
@@ -2042,6 +2108,10 @@ async function fetchAndRender() {
   try {
     const orgQ = organismQuery();
     const orgJoin = orgQ ? `${orgQ}&` : '?';
+    const organismId = activeOrganismId();
+    const policyUrl = organismId
+      ? `${API}/api/organisms/${encodeURIComponent(organismId)}/policy`
+      : `${API}/api/execution/policy`;
     const [agents, axl, tasks, infts, storage, treasury, history, stats, services, activity, policy] = await Promise.all([
       fetch(`${API}/api/agents${orgQ}`).then(r => r.json()).catch(() => ({ agents: [] })),
       fetch(`${API}/api/axl${orgJoin}limit=14`).then(r => r.json()).catch(() => ({ messages: [] })),
@@ -2053,7 +2123,7 @@ async function fetchAndRender() {
       fetch(`${API}/api/stats${orgQ}`).then(r => r.json()).catch(() => ({ stats: null })),
       fetch(`${API}/api/services`).then(r => r.json()).catch(() => null),
       fetch(`${API}/api/activity/grouped${orgJoin}limit_per_agent=15`).then(r => r.json()).catch(() => ({ agents: {} })),
-      fetch(`${API}/api/execution/policy`).then(r => r.json()).catch(() => ({ policy: null })),
+      fetch(policyUrl, { credentials: 'include' }).then(r => r.json()).catch(() => ({ policy: null })),
     ]);
     if (agents.agents && agents.agents.length) renderAgentCards(agents.agents);
     if (axl.messages && axl.messages.length) renderAxlFeed(axl.messages);
@@ -2106,10 +2176,21 @@ async function triggerKeeperHubTestTransfer() {
   const btn = document.getElementById('kh-transfer-btn');
   if (!btn) return;
   const original = btn.textContent;
+  const organismId = activeOrganismId();
+  if (!organismId) {
+    btn.textContent = 'Select organism';
+    setTimeout(() => { btn.textContent = original; }, 2200);
+    return;
+  }
   btn.disabled = true;
   btn.textContent = 'Submitting...';
   try {
-    const res = await fetch(`${API}/api/keeperhub/test-transfer?network=sepolia`, { method: 'POST' });
+    const res = await fetch(`${API}/api/organisms/${encodeURIComponent(organismId)}/keeperhub/test-transfer`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ network: 'sepolia' }),
+    });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.status === 'error' || data.status === 'failed') {
       console.warn('[MiliGents] KeeperHub test transfer failed', data);
@@ -2149,7 +2230,8 @@ if (window.ethereum?.on) {
 
 /* WebSocket live feed */
 (function connectWS() {
-  const wsUrl = API.replace('http', 'ws') + '/api/feed/live';
+  const orgQ = organismQuery('?');
+  const wsUrl = API.replace('http', 'ws') + '/api/feed/live' + orgQ;
   let ws;
   try {
     ws = new WebSocket(wsUrl);

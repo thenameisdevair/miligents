@@ -93,7 +93,7 @@ from integrations.state_writer import (
     set_current_cycle,
     clear_current_cycle,
 )
-from integrations.wallet import get_eth_balance
+from integrations.wallet import get_eth_balance, get_native_balance
 
 app = FastAPI(title="MiliGents API", version="1.0.0")
 
@@ -660,10 +660,16 @@ def treasury(organism_id: str = None):
     On RPC failure, returns the last known snapshot without writing.
     """
     address = os.getenv("WALLET_ADDRESS")
+    network = "ethereum"
+    if organism_id:
+        funding = get_organism_funding(organism_id)
+        if funding:
+            address = funding[0].get("deposit_address") or address
+            network = funding[0].get("network") or network
     rpc_error = None
     if address:
         try:
-            balance = get_eth_balance(address)
+            balance = get_native_balance(address, network) if organism_id else get_eth_balance(address)
             write_treasury_snapshot(eth_balance=balance, organism_id=organism_id)
         except Exception as e:
             rpc_error = str(e)
@@ -671,6 +677,7 @@ def treasury(organism_id: str = None):
     return {
         "treasury": get_latest_treasury(organism_id=organism_id),
         "wallet_address": address,
+        "network": network,
         "rpc_error": rpc_error,
     }
 
@@ -684,9 +691,14 @@ def treasury_history(limit: int = 60, organism_id: str = None):
 
 @app.get("/api/stats")
 def stats(organism_id: str = None):
+    wallet_address = os.getenv("WALLET_ADDRESS")
+    if organism_id:
+        funding = get_organism_funding(organism_id)
+        if funding and funding[0].get("deposit_address"):
+            wallet_address = funding[0]["deposit_address"]
     return {
         "stats": get_summary_stats(organism_id=organism_id),
-        "wallet_address": os.getenv("WALLET_ADDRESS"),
+        "wallet_address": wallet_address,
     }
 
 
@@ -922,15 +934,17 @@ async def feed(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
+            organism_id = websocket.query_params.get("organism_id")
             payload = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "agents": get_all_agents(),
-                "axl": get_axl_messages(limit=10),
-                "tasks": get_keeperhub_tasks(limit=5),
-                "infts": get_infts(limit=5),
-                "treasury": get_latest_treasury(),
-                "stats": get_summary_stats(),
-                "activity": get_activity(limit=40),
+                "organism_id": organism_id,
+                "agents": get_all_agents(organism_id=organism_id),
+                "axl": get_axl_messages(limit=10, organism_id=organism_id),
+                "tasks": get_keeperhub_tasks(limit=5, organism_id=organism_id),
+                "infts": get_infts(limit=5, organism_id=organism_id),
+                "treasury": get_latest_treasury(organism_id=organism_id),
+                "stats": get_summary_stats(organism_id=organism_id),
+                "activity": get_activity(limit=40, organism_id=organism_id),
             }
             await manager.broadcast(payload)
             await asyncio.sleep(3)
