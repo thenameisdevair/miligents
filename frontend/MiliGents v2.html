@@ -1432,7 +1432,7 @@ sl.dispatchEvent(new Event('input'));
 // hero-treas value is populated by renderTreasury() from /api/treasury — no fake animation.
 
 /* ================= API WIRING ================= */
-const API = (typeof window !== 'undefined' && window.MILIGENTS_API) || window.location.origin;
+const API = (typeof window !== 'undefined' && window.MILIGENTS_API) || 'http://localhost:8081';
 const DEFAULT_OG_STORAGE_SCAN_URL = 'https://storagescan-galileo.0g.ai/address/0xe84503EBC06fcbCC00f3c2C81F34813837F4A4ae';
 const SEPOLIA_CHAIN_ID = 11155111;
 const ACTIVITY_AGENTS = [
@@ -2433,10 +2433,9 @@ async function fetchAndRender() {
       clearDashboardData();
       return;
     }
-    const useScopedData = currentPageId() === 'dashboard';
-    const orgQ = useScopedData ? organismQuery() : '';
+    const orgQ = organismQuery();
     const orgJoin = orgQ ? `${orgQ}&` : '?';
-    const organismId = useScopedData ? scopedOrganismId() : '';
+    const organismId = scopedOrganismId();
     const apiGet = url => fetch(url, { credentials: 'include' }).then(r => r.json());
     const policyUrl = organismId
       ? `${API}/api/organisms/${encodeURIComponent(organismId)}/policy`
@@ -2578,9 +2577,8 @@ if (window.ethereum?.on) {
 
 /* WebSocket live feed */
 (function connectWS() {
-  const isScopedSocket = currentPageId() === 'dashboard';
-  const orgQ = isScopedSocket ? organismQuery('?') : '';
-  const wsScope = isScopedSocket ? scopedOrganismId() : '';
+  const orgQ = organismQuery('?');
+  const wsScope = scopedOrganismId();
   const wsUrl = API.replace('http', 'ws') + '/api/feed/live' + orgQ;
   let ws;
   try {
@@ -2588,7 +2586,7 @@ if (window.ethereum?.on) {
     ws.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
-        if (isScopedSocket && ((data.organism_id || '') !== wsScope || wsScope !== scopedOrganismId())) return;
+        if ((data.organism_id || '') !== wsScope || wsScope !== scopedOrganismId()) return;
         if (data.axl) renderAxlFeed(data.axl);
         if (data.tasks) renderKeeperTasks(data.tasks);
         if (data.infts) renderInftGrid(data.infts);
