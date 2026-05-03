@@ -80,6 +80,7 @@ from integrations.organisms import (
     update_organism_status,
 )
 from integrations.state_writer import (
+    DEFAULT_ORGANISM_ID,
     write_activity,
     write_agent_status,
     write_axl_message,
@@ -92,21 +93,32 @@ from integrations.state_writer import (
     write_treasury_snapshot,
     set_current_cycle,
     clear_current_cycle,
+    set_current_organism,
+    clear_current_organism,
 )
 from integrations.wallet import get_eth_balance, get_native_balance
 
 app = FastAPI(title="MiliGents API", version="1.0.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 BRIDGE_URL = os.getenv("BRIDGE_URL", "http://localhost:3100")
 KEEPERHUB_MCP_URL = os.getenv("KEEPERHUB_MCP_URL", "http://localhost:3001")
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:8081")
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        f"{FRONTEND_ORIGIN},http://localhost:5500,http://127.0.0.1:5500,http://localhost:8081",
+    ).split(",")
+    if origin.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class AuthVerifyRequest(BaseModel):
@@ -164,6 +176,10 @@ class KeeperHubTransferRequest(BaseModel):
     token_address: str | None = None
 
 
+class ProofRunRequest(BaseModel):
+    organism_id: str | None = None
+
+
 # ─── Health ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/health")
@@ -192,6 +208,29 @@ def _require_session(request: Request) -> dict:
     if not session:
         raise PermissionError("wallet session required")
     return session
+
+
+def _readable_organism_id(organism_id: str | None, request: Request) -> str | None:
+    """Allow public default reads, but require ownership for user organisms."""
+    if not organism_id or organism_id == DEFAULT_ORGANISM_ID:
+        return organism_id
+    session = _require_session(request)
+    assert_owner(organism_id, session["owner_wallet"])
+    return organism_id
+
+
+def _websocket_organism_id(websocket: WebSocket) -> str | None:
+    organism_id = websocket.query_params.get("organism_id")
+    if not organism_id or organism_id == DEFAULT_ORGANISM_ID:
+        return organism_id
+    session = get_session(websocket.cookies.get(SESSION_COOKIE))
+    if not session:
+        return None
+    try:
+        assert_owner(organism_id, session["owner_wallet"])
+        return organism_id
+    except Exception:
+        return None
 
 
 def _model_dump(model: BaseModel) -> dict:
@@ -269,6 +308,8 @@ def organism_create(payload: OrganismCreateRequest, request: Request):
 @app.get("/api/organisms")
 def organisms(request: Request):
     session = get_session(_session_token_from_request(request))
+    if not session:
+        return {"organisms": []}
     owner_wallet = session["owner_wallet"] if session else None
     return {"organisms": list_organisms(owner_wallet=owner_wallet)}
 
@@ -503,8 +544,11 @@ def organism_keeperhub_test_transfer(
 # ─── Agents ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/agents")
-def agents(organism_id: str = None):
-    return {"agents": get_all_agents(organism_id=organism_id)}
+def agents(request: Request, organism_id: str = None):
+    try:
+        return {"agents": get_all_agents(organism_id=_readable_organism_id(organism_id, request))}
+    except Exception as e:
+        return {"agents": [], "status": "error", "error": str(e)}
 
 
 @app.get("/api/agents/{agent_id}")
@@ -518,27 +562,39 @@ def agent(agent_id: str):
 # ─── AXL Messages ─────────────────────────────────────────────────────────────
 
 @app.get("/api/axl")
-def axl(limit: int = 50, organism_id: str = None):
-    return {"messages": get_axl_messages(limit=limit, organism_id=organism_id)}
+def axl(request: Request, limit: int = 50, organism_id: str = None):
+    try:
+        return {"messages": get_axl_messages(limit=limit, organism_id=_readable_organism_id(organism_id, request))}
+    except Exception as e:
+        return {"messages": [], "status": "error", "error": str(e)}
 
 
 # ─── Storage Records ──────────────────────────────────────────────────────────
 
 @app.get("/api/storage")
-def storage(limit: int = 20, organism_id: str = None):
-    return {"records": get_storage_records(limit=limit, organism_id=organism_id)}
+def storage(request: Request, limit: int = 20, organism_id: str = None):
+    try:
+        return {"records": get_storage_records(limit=limit, organism_id=_readable_organism_id(organism_id, request))}
+    except Exception as e:
+        return {"records": [], "status": "error", "error": str(e)}
 
 
 # ─── KeeperHub Tasks ──────────────────────────────────────────────────────────
 
 @app.get("/api/tasks")
-def tasks(limit: int = 20, organism_id: str = None):
-    return {"tasks": get_keeperhub_tasks(limit=limit, organism_id=organism_id)}
+def tasks(request: Request, limit: int = 20, organism_id: str = None):
+    try:
+        return {"tasks": get_keeperhub_tasks(limit=limit, organism_id=_readable_organism_id(organism_id, request))}
+    except Exception as e:
+        return {"tasks": [], "status": "error", "error": str(e)}
 
 
 @app.get("/api/organism-executions")
-def organism_executions(limit: int = 20, organism_id: str = None):
-    return {"executions": get_organism_executions(limit=limit, organism_id=organism_id)}
+def organism_executions(request: Request, limit: int = 20, organism_id: str = None):
+    try:
+        return {"executions": get_organism_executions(limit=limit, organism_id=_readable_organism_id(organism_id, request))}
+    except Exception as e:
+        return {"executions": [], "status": "error", "error": str(e)}
 
 
 @app.get("/api/execution/policy")
@@ -642,7 +698,11 @@ def keeperhub_test_transfer(network: str = "sepolia", amount: str = None, to: st
 # ─── iNFTs ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/infts")
-def infts(limit: int = 20, organism_id: str = None):
+def infts(request: Request, limit: int = 20, organism_id: str = None):
+    try:
+        organism_id = _readable_organism_id(organism_id, request)
+    except Exception as e:
+        return {"infts": [], "total": 0, "status": "error", "error": str(e)}
     return {
         "infts": get_infts(limit=limit, organism_id=organism_id),
         "total": get_inft_count(organism_id=organism_id)
@@ -652,13 +712,18 @@ def infts(limit: int = 20, organism_id: str = None):
 # ─── Treasury ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/treasury")
-def treasury(organism_id: str = None):
+def treasury(request: Request, organism_id: str = None):
     """
     Fetch the organism's treasury wallet balance from the configured
     EVM RPC, write a snapshot to state.db, and return the latest snapshot.
 
     On RPC failure, returns the last known snapshot without writing.
     """
+    try:
+        organism_id = _readable_organism_id(organism_id, request)
+    except Exception as e:
+        return {"treasury": None, "wallet_address": None, "rpc_error": str(e)}
+
     address = os.getenv("WALLET_ADDRESS")
     network = "ethereum"
     if organism_id:
@@ -683,14 +748,21 @@ def treasury(organism_id: str = None):
 
 
 @app.get("/api/treasury/history")
-def treasury_history(limit: int = 60, organism_id: str = None):
-    return {"history": get_treasury_history(limit=limit, organism_id=organism_id)}
+def treasury_history(request: Request, limit: int = 60, organism_id: str = None):
+    try:
+        return {"history": get_treasury_history(limit=limit, organism_id=_readable_organism_id(organism_id, request))}
+    except Exception as e:
+        return {"history": [], "status": "error", "error": str(e)}
 
 
 # ─── Stats ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/stats")
-def stats(organism_id: str = None):
+def stats(request: Request, organism_id: str = None):
+    try:
+        organism_id = _readable_organism_id(organism_id, request)
+    except Exception as e:
+        return {"stats": None, "wallet_address": None, "status": "error", "error": str(e)}
     wallet_address = os.getenv("WALLET_ADDRESS")
     if organism_id:
         funding = get_organism_funding(organism_id)
@@ -727,14 +799,21 @@ def services():
 # ─── Cycles ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/cycles")
-def cycles(limit: int = 20, organism_id: str = None):
-    return {"cycles": get_cycles(limit=limit, organism_id=organism_id)}
+def cycles(request: Request, limit: int = 20, organism_id: str = None):
+    try:
+        return {"cycles": get_cycles(limit=limit, organism_id=_readable_organism_id(organism_id, request))}
+    except Exception as e:
+        return {"cycles": [], "status": "error", "error": str(e)}
 
 
 # ─── Activity ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/activity")
-def activity(agent_id: str = None, cycle_id: str = None, organism_id: str = None, limit: int = 30):
+def activity(request: Request, agent_id: str = None, cycle_id: str = None, organism_id: str = None, limit: int = 30):
+    try:
+        organism_id = _readable_organism_id(organism_id, request)
+    except Exception as e:
+        return {"activity": [], "status": "error", "error": str(e)}
     return {
         "activity": get_activity(
             agent_id=agent_id,
@@ -746,7 +825,11 @@ def activity(agent_id: str = None, cycle_id: str = None, organism_id: str = None
 
 
 @app.get("/api/activity/grouped")
-def activity_grouped(limit_per_agent: int = 15, organism_id: str = None):
+def activity_grouped(request: Request, limit_per_agent: int = 15, organism_id: str = None):
+    try:
+        organism_id = _readable_organism_id(organism_id, request)
+    except Exception as e:
+        return {"agents": {}, "status": "error", "error": str(e)}
     limit_per_agent = max(1, min(int(limit_per_agent or 15), 50))
     agents = ["originator", "specialist", "execution", "scheduler"]
     return {
@@ -761,26 +844,33 @@ def activity_grouped(limit_per_agent: int = 15, organism_id: str = None):
 # ─── Demo Proof Cycle ─────────────────────────────────────────────────────────
 
 @app.post("/api/demo/run")
-def demo_run():
+def demo_run(request: Request, payload: ProofRunRequest | None = None):
     """
-    Run a compact proof cycle for demos.
+    Run a compact proof cycle for the selected organism.
 
     This avoids long CrewAI context windows while still using the real bridge:
     it uploads a strategy proof to 0G Storage, mints an iNFT, stores root/tx
     state, and emits activity for all dashboard lanes.
     """
-    cycle_id = f"demo_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    organism_id = payload.organism_id if payload else None
+    try:
+        organism_id = _readable_organism_id(organism_id, request)
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+    cycle_id = f"proof_{organism_id or DEFAULT_ORGANISM_ID}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    set_current_organism(organism_id or DEFAULT_ORGANISM_ID)
     set_current_cycle(cycle_id)
-    write_cycle_start(cycle_id)
-    write_activity("scheduler", "cycle", f"started {cycle_id}", cycle_id=cycle_id)
+    write_cycle_start(cycle_id, organism_id=organism_id)
+    write_activity("scheduler", "cycle", f"started {cycle_id}", cycle_id=cycle_id, organism_id=organism_id)
 
     try:
         now = datetime.now(timezone.utc).isoformat()
-        write_agent_status("originator", "running", current_task="Preparing demo proof strategy")
-        write_activity("originator", "task", "selected compact proof strategy", cycle_id=cycle_id)
+        write_agent_status("originator", "running", current_task="Preparing proof strategy", organism_id=organism_id)
+        write_activity("originator", "task", "selected compact proof strategy", cycle_id=cycle_id, organism_id=organism_id)
 
         strategy = {
-            "name": "Demo Proof Strategy",
+            "name": "Organism Proof Strategy",
             "created_at": now,
             "summary": "Compact strategy proof generated for the MiliGents live dashboard.",
             "steps": [
@@ -789,27 +879,28 @@ def demo_run():
                 "surface root hash and mint tx in dashboard",
             ],
         }
-        filename = f"demo_proof_strategy_{cycle_id}.json"
+        filename = f"organism_proof_strategy_{cycle_id}.json"
 
-        write_agent_status("specialist", "running", current_task="Writing compact strategy report")
-        write_activity("specialist", "task", "prepared storage proof payload", cycle_id=cycle_id)
+        write_agent_status("specialist", "running", current_task="Writing compact strategy report", organism_id=organism_id)
+        write_activity("specialist", "task", "prepared storage proof payload", cycle_id=cycle_id, organism_id=organism_id)
         root_hash = upload_data(json.dumps(strategy, indent=2), filename)
-        write_storage_record("specialist", filename, root_hash)
+        write_storage_record("specialist", filename, root_hash, organism_id=organism_id)
 
         write_axl_message("specialist", "execution", "REPORT", {
             "summary": strategy["summary"],
             "root_hash": root_hash,
             "status": "complete",
             "cycle_id": cycle_id,
-        })
+        }, organism_id=organism_id)
 
-        write_agent_status("execution", "running", current_task="Minting demo iNFT proof")
-        write_activity("execution", "task", "minting demo proof iNFT", cycle_id=cycle_id)
+        write_agent_status("execution", "running", current_task="Minting iNFT proof", organism_id=organism_id)
+        write_activity("execution", "task", "minting proof iNFT", cycle_id=cycle_id, organism_id=organism_id)
         minted = mint_inft(root_hash, {
             "agent": "execution",
             "version": 1,
-            "type": "demo_proof_strategy",
+            "type": "organism_proof_strategy",
             "cycle_id": cycle_id,
+            "organism_id": organism_id,
         })
         token_id = str(minted["token_id"])
         mint_tx = minted.get("mint_tx")
@@ -821,6 +912,7 @@ def demo_run():
             strategy_name=filename,
             version=1,
             mint_tx=mint_tx,
+            organism_id=organism_id,
         )
         write_axl_message("execution", "originator", "STATUS", {
             "status": "completed",
@@ -828,22 +920,24 @@ def demo_run():
             "root_hash": root_hash,
             "mint_tx": mint_tx,
             "cycle_id": cycle_id,
-        })
+        }, organism_id=organism_id)
 
-        write_agent_status("originator", "complete", current_task="Demo proof complete")
-        write_agent_status("specialist", "complete", current_task="Demo report stored")
-        write_agent_status("execution", "complete", current_task=f"Minted iNFT token {token_id}")
-        write_activity("scheduler", "cycle", f"finished {cycle_id} (complete)", cycle_id=cycle_id)
+        write_agent_status("originator", "complete", current_task="Proof complete", organism_id=organism_id)
+        write_agent_status("specialist", "complete", current_task="Proof report stored", organism_id=organism_id)
+        write_agent_status("execution", "complete", current_task=f"Minted iNFT token {token_id}", organism_id=organism_id)
+        write_activity("scheduler", "cycle", f"finished {cycle_id} (complete)", cycle_id=cycle_id, organism_id=organism_id)
         write_cycle_complete(
             cycle_id,
             status="complete",
             originator_status="complete",
             specialist_status="complete",
             execution_status="complete",
+            organism_id=organism_id,
         )
 
         return {
             "status": "complete",
+            "organism_id": organism_id,
             "cycle_id": cycle_id,
             "root_hash": root_hash,
             "token_id": token_id,
@@ -851,12 +945,13 @@ def demo_run():
         }
     except Exception as e:
         err = str(e)
-        write_activity("scheduler", "error", f"demo proof failed: {err[:100]}", cycle_id=cycle_id)
-        write_cycle_complete(cycle_id, status="error")
-        write_agent_status("execution", "error", result=err)
-        return {"status": "error", "cycle_id": cycle_id, "error": err}
+        write_activity("scheduler", "error", f"proof failed: {err[:100]}", cycle_id=cycle_id, organism_id=organism_id)
+        write_cycle_complete(cycle_id, status="error", organism_id=organism_id)
+        write_agent_status("execution", "error", result=err, organism_id=organism_id)
+        return {"status": "error", "organism_id": organism_id, "cycle_id": cycle_id, "error": err}
     finally:
         clear_current_cycle()
+        clear_current_organism()
 
 
 # ─── Scheduler Control ────────────────────────────────────────────────────────
@@ -934,7 +1029,23 @@ async def feed(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            organism_id = websocket.query_params.get("organism_id")
+            requested_organism_id = websocket.query_params.get("organism_id")
+            organism_id = _websocket_organism_id(websocket)
+            if requested_organism_id and organism_id is None:
+                await websocket.send_json({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "status": "error",
+                    "error": "wallet session required for organism feed",
+                    "agents": [],
+                    "axl": [],
+                    "tasks": [],
+                    "infts": [],
+                    "treasury": None,
+                    "stats": None,
+                    "activity": [],
+                })
+                await asyncio.sleep(3)
+                continue
             payload = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "organism_id": organism_id,
