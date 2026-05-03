@@ -13,6 +13,7 @@ Falls back to: ./state/state.db (local development)
 import json
 import os
 import sqlite3
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,6 +21,8 @@ from pathlib import Path
 STATE_DIR = os.getenv("STATE_DIR", "./state")
 DB_PATH = os.path.join(STATE_DIR, "state.db")
 DEFAULT_ORGANISM_ID = os.getenv("DEFAULT_ORGANISM_ID", "local-default")
+_CURRENT_ORGANISM: ContextVar[str | None] = ContextVar("miligents_current_organism", default=None)
+_CURRENT_CYCLE: ContextVar[str | None] = ContextVar("miligents_current_cycle", default=None)
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -140,13 +143,15 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             ON auth_sessions(owner_wallet, created_at DESC);
 
         CREATE TABLE IF NOT EXISTS agents (
-            agent_id      TEXT PRIMARY KEY,
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id      TEXT NOT NULL,
             status        TEXT NOT NULL DEFAULT 'idle',
             current_task  TEXT,
             started_at    TEXT,
             updated_at    TEXT,
             spawned_count INTEGER DEFAULT 0,
-            result        TEXT
+            result        TEXT,
+            organism_id   TEXT NOT NULL DEFAULT 'local-default'
         );
 
         CREATE TABLE IF NOT EXISTS axl_messages (
@@ -220,6 +225,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS activity_ts
             ON activity(timestamp DESC);
     """)
+    _ensure_agent_identity_schema(conn)
     _ensure_organism_columns(conn)
     _ensure_default_organism(conn)
     conn.commit()
@@ -232,6 +238,80 @@ def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
     if column not in _table_columns(conn, table):
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def _ensure_agent_identity_schema(conn: sqlite3.Connection) -> None:
+    """Migrate agents from global agent_id PK to per-organism identity."""
+    rows = list(conn.execute("PRAGMA table_info(agents)"))
+    columns = {row["name"] for row in rows}
+    agent_id_is_pk = any(row["name"] == "agent_id" and row["pk"] for row in rows)
+    if "id" in columns and not agent_id_is_pk:
+        conn.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS agents_organism_agent_idx
+               ON agents(organism_id, agent_id)"""
+        )
+        return
+
+    conn.execute("ALTER TABLE agents RENAME TO agents_legacy")
+    conn.execute(
+        """CREATE TABLE agents (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id      TEXT NOT NULL,
+            status        TEXT NOT NULL DEFAULT 'idle',
+            current_task  TEXT,
+            started_at    TEXT,
+            updated_at    TEXT,
+            spawned_count INTEGER DEFAULT 0,
+            result        TEXT,
+            organism_id   TEXT NOT NULL DEFAULT 'local-default'
+        )"""
+    )
+    conn.execute(
+        """CREATE UNIQUE INDEX agents_organism_agent_idx
+           ON agents(organism_id, agent_id)"""
+    )
+
+    legacy_columns = _table_columns(conn, "agents_legacy")
+    select_cols = [
+        "agent_id",
+        "status",
+        "current_task",
+        "started_at",
+        "updated_at",
+        "spawned_count",
+        "result",
+        "organism_id" if "organism_id" in legacy_columns else f"'{DEFAULT_ORGANISM_ID}' AS organism_id",
+    ]
+    legacy_rows = conn.execute(
+        f"""SELECT {', '.join(select_cols)}
+            FROM agents_legacy
+            ORDER BY COALESCE(updated_at, started_at, '') ASC"""
+    ).fetchall()
+    for row in legacy_rows:
+        conn.execute(
+            """INSERT INTO agents
+               (agent_id, status, current_task, started_at, updated_at, spawned_count, result, organism_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, ?))
+               ON CONFLICT(organism_id, agent_id) DO UPDATE SET
+                   status = excluded.status,
+                   current_task = excluded.current_task,
+                   started_at = COALESCE(agents.started_at, excluded.started_at),
+                   updated_at = excluded.updated_at,
+                   spawned_count = excluded.spawned_count,
+                   result = excluded.result""",
+            (
+                row["agent_id"],
+                row["status"],
+                row["current_task"],
+                row["started_at"],
+                row["updated_at"],
+                row["spawned_count"],
+                row["result"],
+                row["organism_id"],
+                DEFAULT_ORGANISM_ID,
+            ),
+        )
+    conn.execute("DROP TABLE agents_legacy")
 
 
 def _ensure_organism_columns(conn: sqlite3.Connection) -> None:
@@ -356,36 +436,18 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-CURRENT_ORGANISM_FILE = os.path.join(STATE_DIR, "current_organism.txt")
-
-
 def set_current_organism(organism_id: str) -> None:
-    """Record active organism_id so agent writes can attach it."""
-    try:
-        Path(STATE_DIR).mkdir(parents=True, exist_ok=True)
-        with open(CURRENT_ORGANISM_FILE, "w") as f:
-            f.write(organism_id or DEFAULT_ORGANISM_ID)
-    except Exception as e:
-        print(f"[StateWriter] set_current_organism failed: {e}")
+    """Set active organism_id for this process context only."""
+    _CURRENT_ORGANISM.set(organism_id or DEFAULT_ORGANISM_ID)
 
 
 def clear_current_organism() -> None:
-    """Remove active organism marker."""
-    try:
-        if os.path.exists(CURRENT_ORGANISM_FILE):
-            os.remove(CURRENT_ORGANISM_FILE)
-    except Exception as e:
-        print(f"[StateWriter] clear_current_organism failed: {e}")
+    """Clear active organism marker for this process context."""
+    _CURRENT_ORGANISM.set(None)
 
 
 def _read_current_organism() -> str:
-    try:
-        if os.path.exists(CURRENT_ORGANISM_FILE):
-            with open(CURRENT_ORGANISM_FILE) as f:
-                return f.read().strip() or DEFAULT_ORGANISM_ID
-    except Exception:
-        pass
-    return DEFAULT_ORGANISM_ID
+    return _CURRENT_ORGANISM.get() or DEFAULT_ORGANISM_ID
 
 
 # ─── Agent Status ─────────────────────────────────────────────────────────────
@@ -413,12 +475,13 @@ def write_agent_status(
         now = _now()
         organism_id = organism_id or _read_current_organism()
         existing = conn.execute(
-            "SELECT agent_id FROM agents WHERE agent_id = ?", (agent_id,)
+            "SELECT id FROM agents WHERE organism_id = ? AND agent_id = ?",
+            (organism_id, agent_id),
         ).fetchone()
 
         if existing:
-            fields = ["status = ?", "updated_at = ?", "organism_id = ?"]
-            values = [status, now, organism_id]
+            fields = ["status = ?", "updated_at = ?"]
+            values = [status, now]
             if current_task is not None:
                 fields.append("current_task = ?")
                 values.append(current_task)
@@ -428,9 +491,9 @@ def write_agent_status(
             if result is not None:
                 fields.append("result = ?")
                 values.append(result[:500])
-            values.append(agent_id)
+            values.append(existing["id"])
             conn.execute(
-                f"UPDATE agents SET {', '.join(fields)} WHERE agent_id = ?",
+                f"UPDATE agents SET {', '.join(fields)} WHERE id = ?",
                 values
             )
         else:
@@ -683,37 +746,18 @@ def write_treasury_snapshot(
 
 # ─── Activity (live feed) ─────────────────────────────────────────────────────
 
-CURRENT_CYCLE_FILE = os.path.join(STATE_DIR, "current_cycle.txt")
-
-
 def set_current_cycle(cycle_id: str) -> None:
-    """Record the active cycle_id so write_activity() can attach it."""
-    try:
-        Path(STATE_DIR).mkdir(parents=True, exist_ok=True)
-        with open(CURRENT_CYCLE_FILE, "w") as f:
-            f.write(cycle_id)
-    except Exception as e:
-        print(f"[StateWriter] set_current_cycle failed: {e}")
+    """Set active cycle_id for this process context only."""
+    _CURRENT_CYCLE.set(cycle_id)
 
 
 def clear_current_cycle() -> None:
-    """Remove the active-cycle marker. Called when a cycle finishes."""
-    try:
-        if os.path.exists(CURRENT_CYCLE_FILE):
-            os.remove(CURRENT_CYCLE_FILE)
-    except Exception as e:
-        print(f"[StateWriter] clear_current_cycle failed: {e}")
+    """Clear active cycle marker for this process context."""
+    _CURRENT_CYCLE.set(None)
 
 
 def _read_current_cycle() -> str | None:
-    try:
-        if os.path.exists(CURRENT_CYCLE_FILE):
-            with open(CURRENT_CYCLE_FILE) as f:
-                v = f.read().strip()
-                return v or None
-    except Exception:
-        pass
-    return None
+    return _CURRENT_CYCLE.get()
 
 
 def write_activity(

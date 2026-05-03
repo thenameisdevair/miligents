@@ -1068,6 +1068,7 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
 
         <div class="deploy-cta">
           <button class="btn primary lg" id="deploy-action">Connect wallet</button>
+          <button class="btn lg" id="fund-action" type="button" style="display:none">Fund organism</button>
           <div class="meta">
             <span id="deploy-meta-left">OWNER SIGNATURE REQUIRED</span>
             <span id="deploy-meta-right">NO FUNDS MOVE DURING SIGN-IN</span>
@@ -1194,7 +1195,7 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
     <div class="panel live-activity">
       <div class="panel-h">
         <span class="label">Live agent activity</span>
-        <div class="right"><button class="demo-run-btn" id="demo-run-btn" type="button">Run proof cycle</button><span>STRUCTURED EVENTS</span><span style="color:var(--mint-2)">● LIVE</span></div>
+        <div class="right"><button class="demo-run-btn" id="demo-run-btn" type="button">Run now</button><span>STRUCTURED EVENTS</span><span style="color:var(--mint-2)">● LIVE</span></div>
       </div>
       <div class="activity-grid" id="activity-grid"></div>
     </div>
@@ -1442,6 +1443,7 @@ const activityByAgent = Object.fromEntries(ACTIVITY_AGENTS.map(a => [a.id, []]))
 const latestActivitySeen = Object.fromEntries(ACTIVITY_AGENTS.map(a => [a.id, 0]));
 let agentStatusById = {};
 let frontendConfig = {};
+let activeWalletProvider = null;
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({
@@ -1492,6 +1494,18 @@ function currentPageId() {
 
 function scopedOrganismId() {
   return currentPageId() === 'dashboard' ? activeOrganismId() : '';
+}
+
+function ownerWalletKey() {
+  return (deployState.ownerWallet || deployState.session?.owner_wallet || '').toLowerCase();
+}
+
+function activeOrganismStorageKey(owner = ownerWalletKey()) {
+  return owner ? `mg-active-organism:${owner}` : '';
+}
+
+function clearLegacyActiveOrganismKey() {
+  localStorage.removeItem('mg-active-organism');
 }
 
 function reownProjectId() {
@@ -1610,6 +1624,7 @@ function setDeployState(next) {
 
 function renderDeployState() {
   const btn = document.getElementById('deploy-action');
+  const fundBtn = document.getElementById('fund-action');
   const left = document.getElementById('deploy-meta-left');
   const right = document.getElementById('deploy-meta-right');
   const status = document.getElementById('deploy-wallet-status');
@@ -1632,6 +1647,8 @@ function renderDeployState() {
     needs_funding: '· needs funding',
     funded: '· funded',
     funding_detected: '· funding detected',
+    funding_pending: '· funding pending',
+    sponsored: '· sponsored start',
     active: '· active',
     paused: '· paused',
     error: '· action needed',
@@ -1647,20 +1664,29 @@ function renderDeployState() {
     needs_funding: 'Check funding',
     funded: 'Activate organism',
     funding_detected: 'Activate organism',
+    funding_pending: 'Check funding',
+    sponsored: 'Open dashboard',
     active: 'Open dashboard',
     paused: 'Resume organism',
     error: 'Retry',
   }[deployState.status] || 'Create organism';
   btn.textContent = buttonText;
   btn.disabled = deployState.status === 'creating_organism' || deployState.status === 'needs_execution_wallet';
+  if (fundBtn) {
+    fundBtn.style.display = deployState.status === 'needs_funding' || deployState.status === 'funding_pending' ? '' : 'none';
+    fundBtn.disabled = deployState.status === 'funding_pending';
+    fundBtn.textContent = deployState.status === 'funding_pending' ? 'Funding pending...' : 'Fund organism';
+  }
 
   if (left && right) {
     if (deployState.error) {
       left.textContent = 'ERROR';
       right.textContent = deployState.error.slice(0, 48);
     } else if (deposit) {
-      left.textContent = 'FUND EXECUTION WALLET';
-      right.textContent = truncateAddr(deposit) + ' · agents spend only within policy';
+      left.textContent = deployState.status === 'sponsored' ? 'SPONSORED START' : 'FUND EXECUTION WALLET';
+      right.textContent = deployState.status === 'sponsored'
+        ? `${truncateAddr(deposit)} · platform pre-funded execution wallet`
+        : `${truncateAddr(deposit)} · agents spend only within policy`;
     } else if (deployState.session) {
       left.textContent = 'OWNER VERIFIED';
       right.textContent = 'READY TO CREATE ORGANISM';
@@ -1712,6 +1738,7 @@ async function connectAndSignOwnerWallet() {
   try {
     const connection = await connectWithReownAppKit() || await connectWithInjectedWallet();
     const { provider, address, chainId } = connection;
+    activeWalletProvider = provider;
     setDeployState({ status: 'connected_not_signed', ownerWallet: address, chainId, error: null });
 
     const nonceRes = await fetch(`${API}/api/auth/nonce?address=${encodeURIComponent(address)}&chain_id=${encodeURIComponent(chainId)}`, { credentials: 'include' });
@@ -1756,7 +1783,8 @@ function collectOrganismPayload() {
 }
 
 function activeOrganismId() {
-  return localStorage.getItem('mg-active-organism') || deployState.organism?.organism_id || '';
+  const key = activeOrganismStorageKey();
+  return (key && localStorage.getItem(key)) || deployState.organism?.organism_id || '';
 }
 
 function organismQuery(prefix = '?') {
@@ -1775,7 +1803,9 @@ async function createOrganismFromDeploy() {
     });
     const data = await res.json();
     if (data.status !== 'ok') throw new Error(data.error || 'Organism create failed');
-    localStorage.setItem('mg-active-organism', data.organism.organism_id);
+    clearLegacyActiveOrganismKey();
+    const key = activeOrganismStorageKey(data.organism.owner_wallet || deployState.ownerWallet);
+    if (key) localStorage.setItem(key, data.organism.organism_id);
     setDeployState({
       status: data.organism.status,
       organism: data.organism,
@@ -1792,10 +1822,17 @@ async function loadOwnedOrganisms() {
   try {
     const res = await fetch(`${API}/api/organisms`, { credentials: 'include' });
     const data = await res.json();
-    const selectedId = localStorage.getItem('mg-active-organism');
+    clearLegacyActiveOrganismKey();
+    const key = activeOrganismStorageKey();
+    const selectedId = key ? localStorage.getItem(key) : '';
     const organism = (data.organisms || []).find(o => o.organism_id === selectedId) || (data.organisms || [])[0];
-    if (!organism) return;
-    localStorage.setItem('mg-active-organism', organism.organism_id);
+    if (!organism) {
+      if (key) localStorage.removeItem(key);
+      setDeployState({ status: 'signed_ready_to_deploy', organism: null, funding: [], error: null });
+      clearDashboardData();
+      return;
+    }
+    if (key) localStorage.setItem(key, organism.organism_id);
     await refreshOrganismDetails(organism.organism_id);
   } catch (e) {
     console.warn('[MiliGents] organism session load failed', e);
@@ -1828,6 +1865,71 @@ async function checkFundingForActiveOrganism() {
   }
 }
 
+function decimalEthToHexWei(amount) {
+  const raw = String(amount || '0').trim();
+  const [wholeRaw, fracRaw = ''] = raw.split('.');
+  const whole = BigInt(wholeRaw || '0');
+  const frac = BigInt((fracRaw + '0'.repeat(18)).slice(0, 18));
+  return '0x' + (whole * 1000000000000000000n + frac).toString(16);
+}
+
+async function walletProviderForFunding() {
+  if (activeWalletProvider) return activeWalletProvider;
+  const connection = await connectWithReownAppKit() || await connectWithInjectedWallet();
+  activeWalletProvider = connection.provider;
+  const connected = (connection.address || '').toLowerCase();
+  const owner = ownerWalletKey();
+  if (owner && connected && connected !== owner) {
+    throw new Error('Connected wallet changed. Sign again before funding.');
+  }
+  return activeWalletProvider;
+}
+
+async function fundActiveOrganism() {
+  const organismId = activeOrganismId();
+  const funding = deployState.funding?.[0];
+  const deposit = funding?.deposit_address;
+  const amount = funding?.expected_amount || deployState.organism?.treasury_target_amount || '0';
+  if (!organismId || !deposit) {
+    setDeployState({ status: 'error', error: 'Create an organism with an execution wallet first' });
+    return;
+  }
+  if (!Number(amount)) {
+    setDeployState({ status: 'error', error: 'Treasury amount must be greater than zero to fund manually' });
+    return;
+  }
+  try {
+    setDeployState({ status: 'funding_pending', error: null });
+    const provider = await walletProviderForFunding();
+    const txHash = await provider.request({
+      method: 'eth_sendTransaction',
+      params: [{
+        from: deployState.ownerWallet,
+        to: deposit,
+        value: decimalEthToHexWei(amount),
+      }],
+    });
+    const res = await fetch(`${API}/api/organisms/${encodeURIComponent(organismId)}/funding/tx`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tx_hash: txHash, network: funding?.network || deployState.organism?.network || 'sepolia' }),
+    });
+    const data = await res.json();
+    if (data.status !== 'ok') throw new Error(data.error || 'Could not record funding transaction');
+    setDeployState({
+      status: 'funding_pending',
+      organism: data.organism,
+      funding: data.funding || [],
+      error: null,
+    });
+    await fetchAndRender();
+  } catch (e) {
+    const fallback = deployState.organism?.status || 'needs_funding';
+    setDeployState({ status: fallback, error: e.message || String(e) });
+  }
+}
+
 async function activateActiveOrganism() {
   const organismId = activeOrganismId();
   if (!organismId) {
@@ -1856,13 +1958,15 @@ async function activateActiveOrganism() {
 async function handleDeployAction() {
   if (!deployState.session) return connectAndSignOwnerWallet();
   if (deployState.status === 'signed_ready_to_deploy' || deployState.status === 'error') return createOrganismFromDeploy();
-  if (deployState.status === 'active') return go('dashboard');
-  if (deployState.status === 'needs_funding') return checkFundingForActiveOrganism();
+  if (deployState.status === 'active' || deployState.status === 'sponsored') return go('dashboard');
+  if (deployState.status === 'needs_funding' || deployState.status === 'funding_pending') return checkFundingForActiveOrganism();
   if (deployState.status === 'funded' || deployState.status === 'funding_detected' || deployState.status === 'paused') return activateActiveOrganism();
 }
 
 const deployActionBtn = document.getElementById('deploy-action');
 if (deployActionBtn) deployActionBtn.addEventListener('click', handleDeployAction);
+const fundActionBtn = document.getElementById('fund-action');
+if (fundActionBtn) fundActionBtn.addEventListener('click', fundActiveOrganism);
 
 function relTime(iso) {
   const time = new Date(iso).getTime();
@@ -2121,7 +2225,6 @@ function renderWalletAddress(addr) {
 function renderTreasury(payload, history) {
   if (!payload) return;
   const treasury = payload.treasury || payload;
-  if (payload.wallet_address) renderWalletAddress(payload.wallet_address);
   if (!treasury) return;
   const ethBal = parseFloat(treasury.eth_balance || 0);
   const ethDisplay = ethBal.toFixed(3) + ' ETH';
@@ -2157,7 +2260,6 @@ function renderTreasury(payload, history) {
 function renderStats(payload) {
   if (!payload) return;
   const stats = payload.stats || payload;
-  if (payload.wallet_address) renderWalletAddress(payload.wallet_address);
   if (!stats) return;
   if (document.getElementById('d-nfts')) document.getElementById('d-nfts').textContent = stats.inft_count || 0;
   if (document.getElementById('hero-nfts')) document.getElementById('hero-nfts').textContent = stats.inft_count || 0;
@@ -2169,6 +2271,19 @@ function renderStats(payload) {
   if (document.getElementById('inft-summary-text')) {
     document.getElementById('inft-summary-text').innerHTML = `Your intelligence: <b>${stats.inft_count || 0} iNFTs</b> · ${stats.storage_count || 0} verified storage roots`;
   }
+}
+
+function clearDashboardData() {
+  renderAgentCards([]);
+  renderAxlFeed([]);
+  renderKeeperTasks([]);
+  renderInftGrid([]);
+  renderBackendProofs([], []);
+  renderStats({ stats: { agent_count: 0, inft_count: 0, storage_count: 0, task_count: 0, axl_message_count: 0 } });
+  renderActivity({ agents: Object.fromEntries(ACTIVITY_AGENTS.map(agent => [agent.id, []])) });
+  if (document.getElementById('t-bal')) document.getElementById('t-bal').textContent = '0.000 ETH';
+  if (document.getElementById('d-treasury')) document.getElementById('d-treasury').textContent = '0.000 ETH';
+  if (document.getElementById('g-treasury-d')) document.getElementById('g-treasury-d').textContent = 'no organism selected';
 }
 
 function renderServices(services) {
@@ -2225,6 +2340,10 @@ function renderServices(services) {
 
 async function fetchAndRender() {
   try {
+    if (currentPageId() === 'dashboard' && deployState.session && !activeOrganismId()) {
+      clearDashboardData();
+      return;
+    }
     const orgQ = organismQuery();
     const orgJoin = orgQ ? `${orgQ}&` : '?';
     const organismId = scopedOrganismId();
@@ -2267,27 +2386,31 @@ async function triggerDemoRun() {
   if (!btn) return;
   const original = btn.textContent;
   const organismId = activeOrganismId();
+  if (!organismId) {
+    btn.textContent = 'Create organism';
+    setTimeout(() => { btn.textContent = original; }, 1800);
+    return;
+  }
   btn.disabled = true;
-  btn.textContent = 'Running...';
+  btn.textContent = 'Queued...';
   try {
-    const res = await fetch(`${API}/api/demo/run`, {
+    const res = await fetch(`${API}/api/organisms/${encodeURIComponent(organismId)}/run-now`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ organism_id: organismId || null }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.status === 'error') {
-      console.warn('[MiliGents] Demo proof cycle failed', data);
+      console.warn('[MiliGents] Run-now cycle failed', data);
       btn.textContent = 'Failed';
       setTimeout(() => { btn.textContent = original; }, 1800);
       return;
     }
-    btn.textContent = data.mint_tx ? 'Minted' : 'Stored';
+    btn.textContent = 'Running';
     await fetchAndRender();
     setTimeout(() => { btn.textContent = original; }, 1800);
   } catch (e) {
-    console.warn('[MiliGents] Demo proof cycle unreachable', e);
+    console.warn('[MiliGents] Run-now cycle unreachable', e);
     btn.textContent = 'Offline';
     setTimeout(() => { btn.textContent = original; }, 1800);
   } finally {
@@ -2349,8 +2472,16 @@ setInterval(fetchAndRender, 5000);
 setInterval(tickActivityTimes, 1000);
 
 if (window.ethereum?.on) {
-  window.ethereum.on('accountsChanged', () => {
+  window.ethereum.on('accountsChanged', async () => {
+    const key = activeOrganismStorageKey();
+    if (key) localStorage.removeItem(key);
+    clearLegacyActiveOrganismKey();
+    activeWalletProvider = null;
+    try {
+      await fetch(`${API}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+    } catch (e) {}
     setDeployState({ status: 'not_connected', ownerWallet: null, session: null, organism: null, funding: [], error: null });
+    clearDashboardData();
   });
   window.ethereum.on('chainChanged', () => window.location.reload());
 }

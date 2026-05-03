@@ -24,7 +24,15 @@ from agents.originator.tools import (
 load_dotenv()
 
 
-def create_originator() -> Agent:
+def _risk_guidance(risk_profile: str) -> str:
+    return {
+        "conservative": "Prefer low-risk, low-capital, reversible strategies. Avoid leverage and thin liquidity.",
+        "balanced": "Explore moderate-upside strategies, but keep actions reversible and bounded by policy caps.",
+        "aggressive": "Scan more broadly for upside while still respecting all hard policy limits and allowlists.",
+    }.get((risk_profile or "balanced").lower(), "Respect the configured risk profile and all hard policy limits.")
+
+
+def create_originator(config: dict | None = None) -> Agent:
     """
     Create and return the Originator CrewAI agent.
 
@@ -32,14 +40,22 @@ def create_originator() -> Agent:
         Configured CrewAI Agent instance.
     """
     os.environ["CEREBRAS_API_KEY"] = os.getenv("LLM_API_KEY", "")
+    config = config or {}
+    domains = config.get("domains") or ["agentic trading", "data services"]
+    domain_text = ", ".join(domains)
+    risk_profile = config.get("risk_profile") or "balanced"
+    max_child_agents = int(config.get("max_child_agents") or 3)
+    network = config.get("network") or "sepolia"
+    treasury = f"{config.get('treasury_target_amount') or '0'} {config.get('treasury_asset') or 'ETH'}"
 
     return Agent(
         role="Chief Executive Agent",
         goal=(
-            "Research and identify 3 viable money-making opportunities "
-            "for an autonomous agent to pursue. Spawn Industry Research "
-            "Specialists to validate each opportunity. Monitor their "
-            "reports and decide which to pursue. Expand when profitable."
+            f"Research and identify up to {max_child_agents} viable opportunities "
+            f"inside these owner-selected domains: {domain_text}. Operate on "
+            f"{network} with a target treasury of {treasury}. Spawn only the "
+            "specialists needed to validate the best opportunities, monitor "
+            "their reports, and decide which path to pursue."
         ),
         backstory=(
             "You are the CEO of an autonomous agent organism called MiliGents. "
@@ -48,7 +64,9 @@ def create_originator() -> Agent:
             "your ideas before committing resources. You measure results "
             "before reinvesting. You expand only when existing operations "
             "are profitable. Your mission is to grow a treasury by deploying "
-            "specialized agents that generate revenue autonomously."
+            "specialized agents that generate revenue autonomously. "
+            f"Risk stance: {risk_profile}. {_risk_guidance(risk_profile)} "
+            "Never override backend policy; treat it as the hard safety layer."
         ),
         tools=[
             web_search_tool,

@@ -19,7 +19,7 @@ load_dotenv()
 os.environ["CEREBRAS_API_KEY"] = os.getenv("LLM_API_KEY", "")
 
 
-def create_specialist() -> Agent:
+def create_specialist(config: dict | None = None) -> Agent:
     """
     Create and return the Research Specialist CrewAI agent.
 
@@ -34,19 +34,28 @@ def create_specialist() -> Agent:
         send_report_tool
     )
 
+    config = config or {}
+    domains = ", ".join(config.get("domains") or ["agentic trading"])
+    risk_profile = config.get("risk_profile") or "balanced"
+    network = config.get("network") or "sepolia"
+
     return Agent(
         role="Industry Research Specialist",
         goal=(
             "Master one assigned industry domain and produce a detailed, "
             "actionable strategy report on exactly how an autonomous AI agent "
-            "can generate consistent revenue in that domain."
+            "can generate consistent revenue in that domain. Keep the work "
+            f"anchored to this organism's selected domains: {domains}."
         ),
         backstory=(
             "You are a specialist researcher deployed by the MiliGents Originator. "
             "You go deep, not broad. You do not produce summaries — you produce "
             "concrete, executable intelligence. Your reports contain specific "
             "steps, required tools, realistic capital requirements, risk factors, "
-            "and honest revenue estimates. When you are done, you store your "
+            "and honest revenue estimates. "
+            f"Risk stance: {risk_profile}. Network context: {network}. "
+            "Never recommend actions that require violating backend policy. "
+            "When you are done, you store your "
             "full report on 0G Storage and notify the Originator via AXL."
         ),
         tools=[

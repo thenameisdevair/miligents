@@ -26,6 +26,7 @@ Endpoints:
 import asyncio
 import json
 import os
+import threading
 import time
 import requests
 from datetime import datetime, timezone
@@ -103,6 +104,11 @@ app = FastAPI(title="MiliGents API", version="1.0.0")
 BRIDGE_URL = os.getenv("BRIDGE_URL", "http://localhost:3100")
 KEEPERHUB_MCP_URL = os.getenv("KEEPERHUB_MCP_URL", "http://localhost:3001")
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:8081")
+ORIGINATOR_URL = os.getenv("ORIGINATOR_URL", "http://originator:8001")
+SPECIALIST_URL = os.getenv("SPECIALIST_URL", "http://specialist:8002")
+EXECUTION_URL = os.getenv("EXECUTION_URL", "http://execution:8003")
+AGENT_RUN_TIMEOUT_SECONDS = int(os.getenv("AGENT_RUN_TIMEOUT_SECONDS", "900"))
+AGENT_RUN_POLL_SECONDS = int(os.getenv("AGENT_RUN_POLL_SECONDS", "5"))
 CORS_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
@@ -211,8 +217,13 @@ def _require_session(request: Request) -> dict:
 
 
 def _readable_organism_id(organism_id: str | None, request: Request) -> str | None:
-    """Allow public default reads, but require ownership for user organisms."""
-    if not organism_id or organism_id == DEFAULT_ORGANISM_ID:
+    """Allow public default reads, but require explicit scope for user data."""
+    if not organism_id:
+        session = get_session(_session_token_from_request(request))
+        if session:
+            raise PermissionError("organism_id is required for wallet-scoped reads")
+        return DEFAULT_ORGANISM_ID
+    if organism_id == DEFAULT_ORGANISM_ID:
         return organism_id
     session = _require_session(request)
     assert_owner(organism_id, session["owner_wallet"])
@@ -221,7 +232,9 @@ def _readable_organism_id(organism_id: str | None, request: Request) -> str | No
 
 def _websocket_organism_id(websocket: WebSocket) -> str | None:
     organism_id = websocket.query_params.get("organism_id")
-    if not organism_id or organism_id == DEFAULT_ORGANISM_ID:
+    if not organism_id:
+        return DEFAULT_ORGANISM_ID
+    if organism_id == DEFAULT_ORGANISM_ID:
         return organism_id
     session = get_session(websocket.cookies.get(SESSION_COOKIE))
     if not session:
@@ -357,6 +370,94 @@ def organism_resume(organism_id: str, request: Request):
         session = _require_session(request)
         assert_owner(organism_id, session["owner_wallet"])
         return {"status": "ok", **update_organism_status(organism_id, "active")}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+def _wait_for_agent(name: str, url: str, cycle_id: str, organism_id: str) -> str:
+    try:
+        resp = requests.post(
+            f"{url}/run",
+            json={"organism_id": organism_id, "cycle_id": cycle_id},
+            timeout=10,
+        )
+        if resp.status_code == 409:
+            status = "already_running"
+        elif resp.status_code != 200:
+            write_activity("scheduler", "error", f"{name} run returned {resp.status_code}", cycle_id=cycle_id, organism_id=organism_id)
+            return "error"
+        else:
+            status = "triggered"
+        write_activity("scheduler", "status", f"{name} {status}", cycle_id=cycle_id, organism_id=organism_id)
+    except Exception as e:
+        write_activity("scheduler", "error", f"{name} run failed: {str(e)[:90]}", cycle_id=cycle_id, organism_id=organism_id)
+        return "error"
+
+    deadline = time.time() + AGENT_RUN_TIMEOUT_SECONDS
+    while time.time() < deadline:
+        time.sleep(AGENT_RUN_POLL_SECONDS)
+        try:
+            resp = requests.get(f"{url}/status", timeout=5)
+            data = resp.json()
+            if not data.get("running", True):
+                return "complete"
+        except Exception as e:
+            write_activity("scheduler", "error", f"{name} status failed: {str(e)[:90]}", cycle_id=cycle_id, organism_id=organism_id)
+            return "error"
+    return "timeout"
+
+
+def _run_hosted_agent_cycle(organism_id: str, cycle_id: str) -> None:
+    set_current_organism(organism_id)
+    set_current_cycle(cycle_id)
+    try:
+        write_activity("scheduler", "task", "triggering originator", cycle_id=cycle_id, organism_id=organism_id)
+        originator_status = _wait_for_agent("originator", ORIGINATOR_URL, cycle_id, organism_id)
+        write_activity("scheduler", "task", "triggering specialist", cycle_id=cycle_id, organism_id=organism_id)
+        specialist_status = _wait_for_agent("specialist", SPECIALIST_URL, cycle_id, organism_id)
+        write_activity("scheduler", "task", "triggering execution", cycle_id=cycle_id, organism_id=organism_id)
+        execution_status = _wait_for_agent("execution", EXECUTION_URL, cycle_id, organism_id)
+        final = "complete" if all(
+            status in {"complete", "timeout"}
+            for status in (originator_status, specialist_status, execution_status)
+        ) else "error"
+        write_cycle_complete(
+            cycle_id,
+            status=final,
+            originator_status=originator_status,
+            specialist_status=specialist_status,
+            execution_status=execution_status,
+            organism_id=organism_id,
+        )
+        write_activity("scheduler", "cycle", f"finished {cycle_id} ({final})", cycle_id=cycle_id, organism_id=organism_id)
+    except Exception as e:
+        write_cycle_complete(cycle_id, status="error", organism_id=organism_id)
+        write_activity("scheduler", "error", f"run-now failed: {str(e)[:100]}", cycle_id=cycle_id, organism_id=organism_id)
+    finally:
+        clear_current_cycle()
+        clear_current_organism()
+
+
+@app.post("/api/organisms/{organism_id}/run-now")
+def organism_run_now(organism_id: str, request: Request):
+    try:
+        session = _require_session(request)
+        organism = assert_owner(organism_id, session["owner_wallet"])
+        if organism.get("status") not in {"active", "funded", "sponsored"}:
+            return {
+                "status": "error",
+                "error": f"organism must be active, funded, or sponsored before run-now; current status is {organism.get('status')}",
+            }
+        cycle_id = f"run_now_{organism_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+        write_cycle_start(cycle_id, organism_id=organism_id)
+        write_activity("scheduler", "cycle", f"started {cycle_id}", cycle_id=cycle_id, organism_id=organism_id)
+        thread = threading.Thread(
+            target=_run_hosted_agent_cycle,
+            args=(organism_id, cycle_id),
+            daemon=True,
+        )
+        thread.start()
+        return {"status": "queued", "organism_id": organism_id, "cycle_id": cycle_id}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -552,8 +653,12 @@ def agents(request: Request, organism_id: str = None):
 
 
 @app.get("/api/agents/{agent_id}")
-def agent(agent_id: str):
-    data = get_agent(agent_id)
+def agent(agent_id: str, request: Request, organism_id: str = None):
+    try:
+        organism_id = _readable_organism_id(organism_id, request)
+    except Exception as e:
+        return {"agent": None, "status": "error", "error": str(e)}
+    data = get_agent(agent_id, organism_id=organism_id)
     if not data:
         return {"agent": None, "error": "not found"}
     return {"agent": data}
@@ -1072,7 +1177,7 @@ async def feed(websocket: WebSocket):
                 "stats": get_summary_stats(organism_id=organism_id),
                 "activity": get_activity(limit=40, organism_id=organism_id),
             }
-            await manager.broadcast(payload)
+            await websocket.send_json(payload)
             await asyncio.sleep(3)
     except WebSocketDisconnect:
         manager.disconnect(websocket)

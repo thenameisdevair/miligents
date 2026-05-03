@@ -76,7 +76,7 @@ def trigger_run(payload: RunRequest | None = None):
             set_current_cycle(cycle_id)
         write_activity("originator", "status", "started", cycle_id=cycle_id, organism_id=organism_id)
         try:
-            run()
+            run(organism_id=organism_id, cycle_id=cycle_id)
             write_activity("originator", "status", "finished", cycle_id=cycle_id, organism_id=organism_id)
         except Exception as e:
             print(f"[Originator Server] run() failed: {e}")

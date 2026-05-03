@@ -19,7 +19,7 @@ load_dotenv()
 os.environ["CEREBRAS_API_KEY"] = os.getenv("LLM_API_KEY", "")
 
 
-def create_execution_agent() -> Agent:
+def create_execution_agent(config: dict | None = None) -> Agent:
     """
     Create and return the Execution Agent.
 
@@ -32,15 +32,27 @@ def create_execution_agent() -> Agent:
         report_status_tool,
     )
 
+    config = config or {}
+    policy = config.get("policy") or {}
+    wallet = config.get("execution_wallet") or "server-assigned execution wallet"
+    network = config.get("network") or "sepolia"
+    risk_profile = config.get("risk_profile") or "balanced"
+    allowed_actions = ", ".join(policy.get("allowed_functions") or []) or "workflow actions allowed by policy"
+
     return Agent(
         role="Execution Agent",
         goal=(
             "Execute one assigned strategy via KeeperHub, mint one iNFT proof, "
-            "and report completion."
+            f"and report completion for organism {config.get('organism_id') or 'local-default'} "
+            f"on {network}."
         ),
         backstory=(
             "You are a compact execution worker. Use only the required tools and "
-            "keep outputs short."
+            "keep outputs short. "
+            f"Risk stance: {risk_profile}. Execution wallet: {wallet}. "
+            f"Allowed action summary: {allowed_actions}. "
+            f"Max tx ETH: {policy.get('max_tx_eth', '0')}; daily cap ETH: {policy.get('max_daily_spend_eth', '0')}. "
+            "Do not choose wallets or bypass policy; the server resolves execution identity."
         ),
         tools=[
             run_keeperhub_action_tool,

@@ -38,6 +38,13 @@ def _decode_json_list(value) -> list:
         return [v.strip() for v in str(value).split(",") if v.strip()]
 
 
+def _bool_env(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _row_to_organism(row) -> dict | None:
     if not row:
         return None
@@ -172,7 +179,8 @@ def create_organism(owner_wallet: str, owner_chain_id: int | None, payload: dict
     wallet = _assign_keeperhub_wallet(conn, organism_id, network)
     wallet_address = wallet["wallet_address"] if wallet else None
     wallet_label = wallet["wallet_label"] if wallet else None
-    status = "needs_funding" if wallet_address else "needs_execution_wallet"
+    sponsored_start = bool(wallet_address) and _bool_env("KEEPERHUB_SPONSORED_START", False)
+    status = "sponsored" if sponsored_start else "needs_funding" if wallet_address else "needs_execution_wallet"
 
     conn.execute(
         """INSERT INTO organisms
@@ -232,7 +240,7 @@ def create_organism(owner_wallet: str, owner_chain_id: int | None, payload: dict
             str(payload.get("treasury_target_amount") or "0"),
             "0",
             None,
-            "pending" if wallet_address else "needs_execution_wallet",
+            "sponsored" if sponsored_start else "pending" if wallet_address else "needs_execution_wallet",
             now,
             now,
         ),
@@ -250,6 +258,41 @@ def get_organism_bundle(organism_id: str) -> dict | None:
         "organism": organism,
         "policy": get_organism_policy(organism_id),
         "funding": get_organism_funding(organism_id),
+    }
+
+
+def get_agent_runtime_config(organism_id: str) -> dict:
+    """Return the bounded config agents should bind into prompts and tools."""
+    bundle = get_organism_bundle(organism_id)
+    if not bundle:
+        raise ValueError("organism not found")
+    organism = bundle["organism"]
+    policy = bundle["policy"] or {}
+    funding = (bundle["funding"] or [{}])[0]
+    domains = organism.get("domains") or ["DeFi Trading", "Data Services"]
+    return {
+        "organism_id": organism_id,
+        "name": organism.get("name") or "MiliGents Organism",
+        "risk_profile": organism.get("risk_profile") or "balanced",
+        "domains": domains,
+        "primary_domain": domains[0] if domains else "agentic trading",
+        "max_child_agents": int(organism.get("max_child_agents") or 3),
+        "treasury_target_amount": organism.get("treasury_target_amount") or "0",
+        "treasury_asset": organism.get("treasury_asset") or "ETH",
+        "network": funding.get("network") or "sepolia",
+        "execution_wallet": organism.get("keeperhub_wallet_address"),
+        "execution_wallet_label": organism.get("keeperhub_wallet_label"),
+        "og_wallet_mode": organism.get("og_wallet_mode") or "platform",
+        "policy": {
+            "live_execution": bool(policy.get("live_execution")),
+            "allowed_networks": policy.get("allowed_networks") or [],
+            "allowed_contracts": policy.get("allowed_contracts") or [],
+            "allowed_functions": policy.get("allowed_functions") or [],
+            "max_tx_eth": policy.get("max_tx_eth") or "0",
+            "max_daily_spend_eth": policy.get("max_daily_spend_eth") or "0",
+            "allow_approvals": bool(policy.get("allow_approvals")),
+            "mainnet_confirmed": bool(policy.get("mainnet_confirmed")),
+        },
     }
 
 

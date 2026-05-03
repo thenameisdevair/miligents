@@ -11,7 +11,8 @@ import signal
 import threading
 import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
-from integrations.state_writer import write_agent_status
+from integrations.state_writer import DEFAULT_ORGANISM_ID, write_agent_status
+from integrations.organisms import get_agent_runtime_config
 
 from crewai import Crew, Process
 from agents.originator.agent import create_originator
@@ -37,7 +38,7 @@ def check_dependencies():
     print("[Originator] Dependencies checked.")
 
 
-def run():
+def run(organism_id: str = DEFAULT_ORGANISM_ID, cycle_id: str | None = None):
     """
     Main entry point — start the Originator research loop.
     """
@@ -46,8 +47,9 @@ def run():
 
     check_dependencies()
 
-    originator = create_originator()
-    tasks = create_tasks(originator=originator)
+    config = get_agent_runtime_config(organism_id)
+    originator = create_originator(config=config)
+    tasks = create_tasks(originator=originator, config=config)
 
     crew = Crew(
         agents=[originator],
@@ -57,7 +59,12 @@ def run():
     )
 
     print("[Originator] Starting research loop...")
-    write_agent_status("originator", "running", current_task="Starting research loop")
+    write_agent_status(
+        "originator",
+        "running",
+        current_task=f"Starting research loop for {organism_id}",
+        organism_id=organism_id,
+    )
     print("[Originator] Press Ctrl+C to stop gracefully\n")
 
     def handle_shutdown(sig, frame):
@@ -72,10 +79,10 @@ def run():
         result = crew.kickoff()
         print("\n[Originator] Research loop complete.")
         print("[Originator] Result:", result)
-        write_agent_status("originator", "complete", result=str(result))
+        write_agent_status("originator", "complete", result=str(result), organism_id=organism_id)
     except KeyboardInterrupt:
         print("\n[Originator] Stopped by user.")
-        write_agent_status("originator", "idle")
+        write_agent_status("originator", "idle", organism_id=organism_id)
 
 
 if __name__ == "__main__":

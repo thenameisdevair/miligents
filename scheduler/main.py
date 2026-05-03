@@ -121,7 +121,7 @@ def active_organism_ids() -> list[str]:
         ids = [
             org["organism_id"]
             for org in organisms
-            if org.get("status") in {"active", "funded"} and org.get("organism_id")
+            if org.get("status") in {"active", "funded", "sponsored"} and org.get("organism_id")
         ]
         return ids or [DEFAULT_ORGANISM_ID]
     except Exception as e:

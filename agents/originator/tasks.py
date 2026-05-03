@@ -13,28 +13,37 @@ from crewai import Task
 from agents.originator.agent import create_originator
 
 
-def create_tasks(originator=None) -> list:
+def create_tasks(originator=None, config: dict | None = None) -> list:
     """
     Create and return all Originator tasks in execution order.
 
     Returns:
         List of CrewAI Task instances.
     """
-    originator = originator or create_originator()
+    config = config or {}
+    originator = originator or create_originator(config=config)
+    domains = config.get("domains") or ["agentic trading", "data services"]
+    domain_text = ", ".join(domains)
+    risk_profile = config.get("risk_profile") or "balanced"
+    max_child_agents = int(config.get("max_child_agents") or 3)
+    network = config.get("network") or "sepolia"
+    treasury = f"{config.get('treasury_target_amount') or '0'} {config.get('treasury_asset') or 'ETH'}"
 
     research_task = Task(
         description=(
-            "Research and identify exactly 3 viable money-making opportunities "
-            "for an autonomous AI agent operating with a limited treasury. "
-            "\n\nConsider these categories: agentic trading, content creation "
-            "services, data research services, arbitrage, and API service reselling. "
+            f"Research and identify exactly {min(max_child_agents, 3)} viable money-making "
+            f"opportunities for this organism. Stay inside these owner-selected "
+            f"domains unless a directly related adjacent opportunity is necessary: {domain_text}. "
+            f"\n\nRisk profile: {risk_profile}. Network: {network}. Treasury target: {treasury}. "
+            "\n\nRespect the backend policy as a hard constraint. Do not propose actions "
+            "that require networks, approvals, contracts, or spend beyond policy. "
             "\n\nFor each opportunity: "
             "\n1. Search the web for current viability and market conditions "
             "\n2. Assess whether an AI agent can pursue it autonomously "
             "\n3. Estimate difficulty (low/medium/high) and time to first revenue "
             "\n4. Store a concise research note on 0G Storage using store_research tool. "
             "Keep the stored note under 1,200 words. "
-            "\n\nReturn a JSON list of exactly 3 opportunities with these fields: "
+            f"\n\nReturn a JSON list of exactly {min(max_child_agents, 3)} opportunities with these fields: "
             "name, description, difficulty, estimated_revenue, rationale. "
             "Keep each field short enough for an 8k context model."
         ),

@@ -58,7 +58,7 @@ def get_all_agents(organism_id: str = None) -> list:
     return _rows_to_list(rows)
 
 
-def get_agent(agent_id: str) -> dict:
+def get_agent(agent_id: str, organism_id: str = None) -> dict:
     """
     Get status of a single agent.
 
@@ -71,9 +71,18 @@ def get_agent(agent_id: str) -> dict:
     conn = _get_conn()
     if not conn:
         return None
-    row = conn.execute(
-        "SELECT * FROM agents WHERE agent_id = ?", (agent_id,)
-    ).fetchone()
+    if organism_id:
+        row = conn.execute(
+            "SELECT * FROM agents WHERE organism_id = ? AND agent_id = ?",
+            (organism_id, agent_id),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """SELECT * FROM agents
+               WHERE agent_id = ?
+               ORDER BY updated_at DESC, id DESC LIMIT 1""",
+            (agent_id,),
+        ).fetchone()
     conn.close()
     return _row_to_dict(row)
 

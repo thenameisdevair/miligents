@@ -13,7 +13,7 @@ from crewai import Task
 from agents.research_specialist.agent import create_specialist
 
 
-def create_tasks(domain: str = "agentic trading", specialist=None) -> list:
+def create_tasks(domain: str = "agentic trading", specialist=None, config: dict | None = None) -> list:
     """
     Create and return all Specialist tasks in execution order.
 
@@ -24,11 +24,18 @@ def create_tasks(domain: str = "agentic trading", specialist=None) -> list:
     Returns:
         List of CrewAI Task instances.
     """
-    specialist = specialist or create_specialist()
+    config = config or {}
+    specialist = specialist or create_specialist(config=config)
+    domains = config.get("domains") or [domain]
+    risk_profile = config.get("risk_profile") or "balanced"
+    network = config.get("network") or "sepolia"
+    treasury = f"{config.get('treasury_target_amount') or '0'} {config.get('treasury_asset') or 'ETH'}"
 
     research_task = Task(
         description=(
             f"You have been assigned to research the '{domain}' domain. "
+            f"This organism selected these domains: {', '.join(domains)}. "
+            f"Risk profile: {risk_profile}. Network: {network}. Treasury target: {treasury}. "
             f"\n\nYour mission: find out exactly how an autonomous AI agent "
             f"can generate consistent revenue in '{domain}'. "
             f"\n\nResearch these specific questions: "

@@ -30,6 +30,7 @@ def main() -> int:
             write_activity,
             write_cycle_complete,
             write_cycle_start,
+            write_agent_status,
             write_keeperhub_task,
             write_organism_execution,
             write_storage_record,
@@ -78,6 +79,8 @@ def main() -> int:
         set_current_organism("org_verify")
         set_current_cycle("cycle_verify")
         write_cycle_start("cycle_verify")
+        write_agent_status("originator", "running", organism_id="org_verify")
+        write_agent_status("originator", "running", organism_id="org_other")
         write_activity("scheduler", "cycle", "started")
         write_storage_record("specialist", "verify.json", "0x" + "1" * 64)
         write_keeperhub_task("execution", task_type="verify", status="running")
@@ -99,6 +102,13 @@ def main() -> int:
             ).fetchone()
             if row["organism_id"] != "org_verify":
                 raise AssertionError(f"{table} context mismatch: {row['organism_id']}")
+
+        agent_rows = conn.execute(
+            "SELECT organism_id FROM agents WHERE agent_id = 'originator' ORDER BY organism_id"
+        ).fetchall()
+        agent_orgs = [row["organism_id"] for row in agent_rows]
+        if agent_orgs != ["org_other", "org_verify"]:
+            raise AssertionError(f"agent identity is not organism-scoped: {agent_orgs}")
 
         conn.execute(
             """INSERT INTO keeperhub_wallet_pool

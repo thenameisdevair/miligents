@@ -10,7 +10,8 @@ import os
 import signal
 import threading
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
-from integrations.state_writer import write_agent_status
+from integrations.state_writer import DEFAULT_ORGANISM_ID, write_agent_status
+from integrations.organisms import get_agent_runtime_config
 
 from crewai import Crew, Process
 from agents.execution.agent import create_execution_agent
@@ -37,17 +38,18 @@ def check_dependencies():
         print("[Execution] KeeperHub: OK")
 
 
-def run():
+def run(organism_id: str = DEFAULT_ORGANISM_ID, cycle_id: str | None = None):
     """Main entry point for the Execution Agent."""
-    strategy = os.getenv("EXECUTION_STRATEGY", "agentic trading research")
+    config = get_agent_runtime_config(organism_id)
+    strategy = os.getenv("EXECUTION_STRATEGY") or f"{config.get('primary_domain', 'agentic trading')} research"
 
     print("[Execution] MiliGents Execution Agent starting...")
     print(f"[Execution] Assigned strategy: {strategy}")
 
     check_dependencies()
 
-    agent = create_execution_agent()
-    tasks = create_tasks(strategy=strategy, agent=agent)
+    agent = create_execution_agent(config=config)
+    tasks = create_tasks(strategy=strategy, agent=agent, config=config)
 
     crew = Crew(
         agents=[agent],
@@ -65,17 +67,22 @@ def run():
         signal.signal(signal.SIGTERM, handle_shutdown)
 
     print(f"[Execution] Starting execution of '{strategy}'...")
-    write_agent_status("execution", "running", current_task=f"Executing strategy: {strategy}")
+    write_agent_status(
+        "execution",
+        "running",
+        current_task=f"Executing strategy: {strategy}",
+        organism_id=organism_id,
+    )
     print("[Execution] Press Ctrl+C to stop\n")
 
     try:
         result = crew.kickoff()
         print("\n[Execution] Execution complete.")
         print("[Execution] Result:", result)
-        write_agent_status("execution", "complete", result=str(result))
+        write_agent_status("execution", "complete", result=str(result), organism_id=organism_id)
     except KeyboardInterrupt:
         print("\n[Execution] Stopped by user.")
-        write_agent_status("execution", "idle")
+        write_agent_status("execution", "idle", organism_id=organism_id)
 
 
 if __name__ == "__main__":
