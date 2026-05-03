@@ -218,12 +218,9 @@ def _require_session(request: Request) -> dict:
 
 
 def _readable_organism_id(organism_id: str | None, request: Request) -> str | None:
-    """Allow public default reads, but require explicit scope for user data."""
+    """Return None for global reads; validate ownership only for explicit organism scopes."""
     if not organism_id:
-        session = get_session(_session_token_from_request(request))
-        if session:
-            raise PermissionError("organism_id is required for wallet-scoped reads")
-        return DEFAULT_ORGANISM_ID
+        return None
     if organism_id == DEFAULT_ORGANISM_ID:
         return organism_id
     session = _require_session(request)
@@ -234,7 +231,7 @@ def _readable_organism_id(organism_id: str | None, request: Request) -> str | No
 def _websocket_organism_id(websocket: WebSocket) -> str | None:
     organism_id = websocket.query_params.get("organism_id")
     if not organism_id:
-        return DEFAULT_ORGANISM_ID
+        return None
     if organism_id == DEFAULT_ORGANISM_ID:
         return organism_id
     session = get_session(websocket.cookies.get(SESSION_COOKIE))
