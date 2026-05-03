@@ -242,6 +242,16 @@ python3 scripts/seed_keeperhub_wallet_pool.py \
   --label judge-sepolia-1
 ```
 
+For fastest judging, pre-fund those execution wallets and set:
+
+```bash
+KEEPERHUB_SPONSORED_START=true
+```
+
+The app will label this honestly as a sponsored start. The connected wallet
+still owns the organism and controls policy; agents spend only from the assigned
+execution wallet.
+
 Then the flow is:
 
 ```text
@@ -249,10 +259,11 @@ Then the flow is:
 2. Deploy page → connect wallet → sign ownership message.
 3. Configure treasury/domain/risk.
 4. Create organism.
-5. Fund only the displayed execution wallet address.
-6. Click Check funding.
-7. Activate organism.
-8. Dashboard and KeeperHub actions are filtered by that organism_id.
+5. Use sponsored start, or fund only the displayed execution wallet address.
+6. Click Check funding if manually funded.
+7. Open Dashboard.
+8. Click Run now to trigger an owner-scoped hosted agent cycle.
+9. Dashboard, KeeperHub actions, storage roots, and iNFTs are filtered by that organism_id.
 ```
 
 Run the deploy-organism verifier:
