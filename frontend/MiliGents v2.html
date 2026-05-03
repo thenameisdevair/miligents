@@ -1248,7 +1248,7 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
 
     <div class="inft-summary">
       <div class="l" id="inft-summary-text">Your intelligence: <b>0 iNFTs</b> · verified by backend roots</div>
-      <a class="lk" href="#">View on 0G explorer →</a>
+      <a class="lk" id="og-explorer-link" href="https://storagescan-galileo.0g.ai/address/0xe84503EBC06fcbCC00f3c2C81F34813837F4A4ae" target="_blank" rel="noopener">View on 0G explorer →</a>
     </div>
 
     <div class="inft-grid" id="inft-grid"></div>
@@ -1283,6 +1283,7 @@ const pad = (n,w=2)=>String(n).padStart(w,'0');
   $$('#nav button').forEach(b=>b.classList.toggle('active', b.dataset.page===page));
   $$('.page').forEach(s=>s.classList.toggle('active', s.id==='p-'+page));
   window.scrollTo({top:0,behavior:'instant'});
+  if (typeof fetchAndRender === 'function') fetchAndRender();
 }
 $$('#nav button').forEach(b=>b.addEventListener('click',()=>go(b.dataset.page)));
 $$('[data-go]').forEach(el=>el.addEventListener('click', e=>{e.preventDefault(); go(el.dataset.go)}));
@@ -1430,6 +1431,7 @@ sl.dispatchEvent(new Event('input'));
 
 /* ================= API WIRING ================= */
 const API = (typeof window !== 'undefined' && window.MILIGENTS_API) || 'http://localhost:8081';
+const DEFAULT_OG_STORAGE_SCAN_URL = 'https://storagescan-galileo.0g.ai/address/0xe84503EBC06fcbCC00f3c2C81F34813837F4A4ae';
 const ACTIVITY_AGENTS = [
   { id: 'originator', name: 'ORIGINATOR' },
   { id: 'specialist', name: 'SPECIALIST' },
@@ -1439,6 +1441,7 @@ const ACTIVITY_AGENTS = [
 const activityByAgent = Object.fromEntries(ACTIVITY_AGENTS.map(a => [a.id, []]));
 const latestActivitySeen = Object.fromEntries(ACTIVITY_AGENTS.map(a => [a.id, 0]));
 let agentStatusById = {};
+let frontendConfig = {};
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({
@@ -1483,6 +1486,14 @@ function chainLabel(chainId) {
   return chainId ? `Chain ${chainId}` : 'Wallet';
 }
 
+function currentPageId() {
+  return (document.querySelector('.page.active')?.id || 'p-home').replace(/^p-/, '');
+}
+
+function scopedOrganismId() {
+  return currentPageId() === 'dashboard' ? activeOrganismId() : '';
+}
+
 function reownProjectId() {
   return (
     window.MILIGENTS_REOWN_PROJECT_ID ||
@@ -1499,13 +1510,21 @@ async function loadFrontendConfig() {
   frontendConfigPromise = fetch(`${API}/api/config`, { credentials: 'include' })
     .then(r => r.json())
     .then(cfg => {
+      frontendConfig = cfg || {};
       if (cfg.reown_project_id && !window.MILIGENTS_REOWN_PROJECT_ID) {
         window.MILIGENTS_REOWN_PROJECT_ID = cfg.reown_project_id;
       }
+      updateOgExplorerLink(cfg.storage_scan_url);
       return cfg;
     })
     .catch(() => ({}));
   return frontendConfigPromise;
+}
+
+function updateOgExplorerLink(url) {
+  const link = document.getElementById('og-explorer-link');
+  if (!link) return;
+  link.href = url || DEFAULT_OG_STORAGE_SCAN_URL;
 }
 
 let reownAppKitPromise = null;
@@ -1741,7 +1760,7 @@ function activeOrganismId() {
 }
 
 function organismQuery(prefix = '?') {
-  const id = activeOrganismId();
+  const id = scopedOrganismId();
   return id ? `${prefix}organism_id=${encodeURIComponent(id)}` : '';
 }
 
@@ -1885,6 +1904,7 @@ function agentBadgeLabel(status) {
 }
 
 function renderAgentCards(agents) {
+  agents = Array.isArray(agents) ? agents : [];
   agentStatusById = Object.fromEntries((agents || []).map(a => [a.agent_id, a.status || 'idle']));
   const names = { originator: 'Originator', specialist: 'Research Specialist', execution: 'Execution' };
   const layers = { originator: '1', specialist: '2', execution: '3' };
@@ -1995,7 +2015,11 @@ function tickActivityTimes() {
 
 function renderAxlFeed(messages) {
   const feed = document.getElementById('axl-feed');
-  if (!feed || !messages.length) return;
+  if (!feed) return;
+  if (!messages.length) {
+    feed.innerHTML = '<div class="axl-line"><span class="payload">Waiting for AXL messages...</span></div>';
+    return;
+  }
   feed.innerHTML = '';
   const recent = messages.slice(0, 14);
   recent.forEach((m, i) => {
@@ -2203,7 +2227,7 @@ async function fetchAndRender() {
   try {
     const orgQ = organismQuery();
     const orgJoin = orgQ ? `${orgQ}&` : '?';
-    const organismId = activeOrganismId();
+    const organismId = scopedOrganismId();
     const apiGet = url => fetch(url, { credentials: 'include' }).then(r => r.json());
     const policyUrl = organismId
       ? `${API}/api/organisms/${encodeURIComponent(organismId)}/policy`
@@ -2221,10 +2245,10 @@ async function fetchAndRender() {
       apiGet(`${API}/api/activity/grouped${orgJoin}limit_per_agent=15`).catch(() => ({ agents: {} })),
       apiGet(policyUrl).catch(() => ({ policy: null })),
     ]);
-    if (agents.agents && agents.agents.length) renderAgentCards(agents.agents);
-    if (axl.messages && axl.messages.length) renderAxlFeed(axl.messages);
+    renderAgentCards(agents.agents || []);
+    renderAxlFeed(axl.messages || []);
     renderKeeperTasks(tasks.tasks || [], policy.policy);
-    if (infts.infts && infts.infts.length) renderInftGrid(infts.infts);
+    renderInftGrid(infts.infts || []);
     renderBackendProofs(storage.records || [], infts.infts || []);
     renderTreasury(treasury, history.history || []);
     renderStats(stats);
@@ -2316,6 +2340,7 @@ const khTransferBtn = document.getElementById('kh-transfer-btn');
 if (khTransferBtn) khTransferBtn.addEventListener('click', triggerKeeperHubTestTransfer);
 
 /* Initial fetch */
+loadFrontendConfig();
 fetchAndRender();
 loadAuthSession();
 
@@ -2333,6 +2358,7 @@ if (window.ethereum?.on) {
 /* WebSocket live feed */
 (function connectWS() {
   const orgQ = organismQuery('?');
+  const wsScope = scopedOrganismId();
   const wsUrl = API.replace('http', 'ws') + '/api/feed/live' + orgQ;
   let ws;
   try {
@@ -2340,10 +2366,10 @@ if (window.ethereum?.on) {
     ws.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
-        if (data.agents && data.agents.length) renderAgentCards(data.agents);
-        if (data.axl && data.axl.length) renderAxlFeed(data.axl);
+        if ((data.organism_id || '') !== wsScope || wsScope !== scopedOrganismId()) return;
+        if (data.axl) renderAxlFeed(data.axl);
         if (data.tasks) renderKeeperTasks(data.tasks);
-        if (data.infts && data.infts.length) renderInftGrid(data.infts);
+        if (data.infts) renderInftGrid(data.infts);
         if (data.treasury) renderTreasury(data.treasury, []);
         if (data.stats) renderStats(data.stats);
         if (data.activity && data.activity.length) {

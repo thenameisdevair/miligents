@@ -799,9 +799,15 @@ def services():
 @app.get("/api/config")
 def frontend_config():
     """Public frontend config. Never return secrets here."""
+    storage_wallet = os.getenv("OG_STORAGE_ADDRESS") or os.getenv("WALLET_ADDRESS", "")
     return {
         "reown_project_id": os.getenv("REOWN_PROJECT_ID", ""),
         "frontend_origin": FRONTEND_ORIGIN,
+        "storage_wallet_address": storage_wallet,
+        "storage_scan_url": (
+            f"https://storagescan-galileo.0g.ai/address/{storage_wallet}"
+            if storage_wallet else ""
+        ),
     }
 
 
