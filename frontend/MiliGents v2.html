@@ -1432,7 +1432,7 @@ sl.dispatchEvent(new Event('input'));
 // hero-treas value is populated by renderTreasury() from /api/treasury — no fake animation.
 
 /* ================= API WIRING ================= */
-const API = (typeof window !== 'undefined' && window.MILIGENTS_API) || 'http://localhost:8081';
+const API = (typeof window !== 'undefined' && window.MILIGENTS_API) || window.location.origin;
 const DEFAULT_OG_STORAGE_SCAN_URL = 'https://storagescan-galileo.0g.ai/address/0xe84503EBC06fcbCC00f3c2C81F34813837F4A4ae';
 const SEPOLIA_CHAIN_ID = 11155111;
 const ACTIVITY_AGENTS = [
