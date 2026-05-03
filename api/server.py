@@ -796,6 +796,15 @@ def services():
     }
 
 
+@app.get("/api/config")
+def frontend_config():
+    """Public frontend config. Never return secrets here."""
+    return {
+        "reown_project_id": os.getenv("REOWN_PROJECT_ID", ""),
+        "frontend_origin": FRONTEND_ORIGIN,
+    }
+
+
 # ─── Cycles ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/cycles")

@@ -34,6 +34,10 @@
   `0x3722074f89b6159feb53dc1a2a88dd9a768300a90d0f466616b1aa0f06b2b34d`
 - `get_direct_execution_status` returned transaction hash, explorer link,
   gas used, gas price, retry count, network, and completion timestamps
+- User-owned organism execution is now modeled with a per-organism
+  KeeperHub wallet pool. The backend binds `organism_id` to an assigned
+  execution wallet, funding row, policy row, KeeperHub task rows, and
+  `organism_execution` audit rows.
 
 ### What was confusing
 - The /message endpoint returns "Accepted" not the tool result
@@ -58,6 +62,11 @@
   the first transfer example.
 - Response-shape examples should include both success and error payloads for
   MCP tool calls, especially the `isError` text-content case.
+- KeeperHub wallet ownership is organization-level, so product ownership must
+  be modeled separately: the user wallet signs ownership, while the backend
+  assigns one dedicated KeeperHub execution wallet to that organism. Without
+  that binding layer, it is too easy to confuse "connected user wallet" with
+  "wallet agents are allowed to spend from."
 
 ### Suggested improvement
 - Add a Python example showing the correct SSE session flow
@@ -65,6 +74,9 @@
 - Add a minimal direct-transfer quickstart:
   create org wallet → fund Sepolia → call `execute_transfer` →
   poll `get_direct_execution_status`.
+- Add KeeperHub API support to create/list organization wallets with labels,
+  so products like MiliGents can provision one execution wallet per user-owned
+  organism without an admin pre-seeding pool.
 
 
 ## Uniswap

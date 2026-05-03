@@ -190,6 +190,15 @@ KEEPERHUB_ALLOWED_FUNCTIONS=
 KEEPERHUB_ALLOW_APPROVALS=false
 KEEPERHUB_MAINNET_CONFIRMED=false
 KEEPERHUB_TEST_TRANSFER_ETH=0.00001
+KEEPERHUB_WALLET_POOL=     # sepolia:0xWallet:label,base:0xWallet:label
+SEPOLIA_RPC_URL=           # Required for Sepolia organism funding checks
+BASE_RPC_URL=              # Required before Base organism funding checks
+ETHEREUM_RPC_URL=          # Optional mainnet balance checks
+FRONTEND_ORIGIN=http://localhost:8081
+CORS_ORIGINS=http://localhost:8081,http://localhost:5500,http://127.0.0.1:5500
+AUTH_COOKIE_SECURE=false
+AUTH_COOKIE_SAMESITE=lax
+REOWN_PROJECT_ID=          # Optional AppKit project ID for wallet modal
 UNISWAP_API_KEY=          # Uniswap Trading API key
 ```
 
@@ -200,6 +209,57 @@ after funding the KeeperHub wallet with a small capped amount.
 In production, set these as platform/container secrets, not committed files.
 Keep staging and production policies separate so mainnet is only armed in the
 environment that is meant to run live.
+
+### Deploy user-owned organisms
+
+The Deploy page now creates real organism records. The owner wallet is only for
+identity and permissions; agents spend only from the organism's assigned
+KeeperHub execution wallet and only inside the policy limits.
+
+For Reown AppKit, create a Reown project ID and expose it to the frontend with
+one of:
+
+```html
+<script>window.MILIGENTS_REOWN_PROJECT_ID = "..."</script>
+```
+
+or:
+
+```bash
+localStorage.setItem("mg-reown-project-id", "...")
+```
+
+If no Reown project ID is present, the frontend falls back to the injected
+browser wallet provider.
+
+Before judges create organisms, seed at least one dedicated KeeperHub execution
+wallet per network:
+
+```bash
+python3 scripts/seed_keeperhub_wallet_pool.py \
+  --network sepolia \
+  --wallet 0xYourKeeperHubExecutionWallet \
+  --label judge-sepolia-1
+```
+
+Then the flow is:
+
+```text
+1. Open the frontend.
+2. Deploy page → connect wallet → sign ownership message.
+3. Configure treasury/domain/risk.
+4. Create organism.
+5. Fund only the displayed execution wallet address.
+6. Click Check funding.
+7. Activate organism.
+8. Dashboard and KeeperHub actions are filtered by that organism_id.
+```
+
+Run the deploy-organism verifier:
+
+```bash
+python3 scripts/verify_organism_deploy.py
+```
 
 ### 3. Build and run
 

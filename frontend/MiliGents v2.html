@@ -1493,8 +1493,24 @@ function reownProjectId() {
   ).trim();
 }
 
+let frontendConfigPromise = null;
+async function loadFrontendConfig() {
+  if (frontendConfigPromise) return frontendConfigPromise;
+  frontendConfigPromise = fetch(`${API}/api/config`, { credentials: 'include' })
+    .then(r => r.json())
+    .then(cfg => {
+      if (cfg.reown_project_id && !window.MILIGENTS_REOWN_PROJECT_ID) {
+        window.MILIGENTS_REOWN_PROJECT_ID = cfg.reown_project_id;
+      }
+      return cfg;
+    })
+    .catch(() => ({}));
+  return frontendConfigPromise;
+}
+
 let reownAppKitPromise = null;
 async function initReownAppKit() {
+  await loadFrontendConfig();
   const projectId = reownProjectId();
   if (!projectId) return null;
   if (reownAppKitPromise) return reownAppKitPromise;
