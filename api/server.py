@@ -375,25 +375,29 @@ def organism_resume(organism_id: str, request: Request):
 
 
 def _wait_for_agent(name: str, url: str, cycle_id: str, organism_id: str) -> str:
-    try:
-        resp = requests.post(
-            f"{url}/run",
-            json={"organism_id": organism_id, "cycle_id": cycle_id},
-            timeout=10,
-        )
-        if resp.status_code == 409:
-            status = "already_running"
-        elif resp.status_code != 200:
+    deadline = time.time() + AGENT_RUN_TIMEOUT_SECONDS
+    while time.time() < deadline:
+        try:
+            resp = requests.post(
+                f"{url}/run",
+                json={"organism_id": organism_id, "cycle_id": cycle_id},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                write_activity("scheduler", "status", f"{name} triggered", cycle_id=cycle_id, organism_id=organism_id)
+                break
+            if resp.status_code == 409:
+                write_activity("scheduler", "status", f"{name} busy; waiting", cycle_id=cycle_id, organism_id=organism_id)
+                time.sleep(AGENT_RUN_POLL_SECONDS)
+                continue
             write_activity("scheduler", "error", f"{name} run returned {resp.status_code}", cycle_id=cycle_id, organism_id=organism_id)
             return "error"
-        else:
-            status = "triggered"
-        write_activity("scheduler", "status", f"{name} {status}", cycle_id=cycle_id, organism_id=organism_id)
-    except Exception as e:
-        write_activity("scheduler", "error", f"{name} run failed: {str(e)[:90]}", cycle_id=cycle_id, organism_id=organism_id)
-        return "error"
+        except Exception as e:
+            write_activity("scheduler", "error", f"{name} run failed: {str(e)[:90]}", cycle_id=cycle_id, organism_id=organism_id)
+            return "error"
+    else:
+        return "timeout"
 
-    deadline = time.time() + AGENT_RUN_TIMEOUT_SECONDS
     while time.time() < deadline:
         time.sleep(AGENT_RUN_POLL_SECONDS)
         try:
