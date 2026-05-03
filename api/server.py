@@ -71,6 +71,7 @@ from integrations.organisms import (
     check_funding,
     create_organism,
     get_effective_execution_policy,
+    get_owner_network_balances,
     get_organism_bundle,
     get_organism_funding,
     get_organism_policy,
@@ -293,6 +294,19 @@ def auth_verify(payload: AuthVerifyRequest, response: Response):
 def auth_session(request: Request):
     session = get_session(_session_token_from_request(request))
     return {"authenticated": bool(session), "session": session}
+
+
+@app.get("/api/wallet/balances")
+def wallet_balances(request: Request):
+    try:
+        session = _require_session(request)
+        return {
+            "status": "ok",
+            "owner_wallet": session["owner_wallet"],
+            "balances": get_owner_network_balances(session["owner_wallet"]),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 
 @app.post("/api/auth/logout")
@@ -912,6 +926,8 @@ def frontend_config():
     return {
         "reown_project_id": os.getenv("REOWN_PROJECT_ID", ""),
         "frontend_origin": FRONTEND_ORIGIN,
+        "deploy_network": "sepolia",
+        "min_owner_sepolia_eth": os.getenv("MIN_OWNER_SEPOLIA_ETH", "0.5"),
         "storage_wallet_address": storage_wallet,
         "storage_scan_url": (
             f"https://storagescan-galileo.0g.ai/address/{storage_wallet}"

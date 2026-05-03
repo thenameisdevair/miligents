@@ -9,11 +9,13 @@ import json
 import os
 import secrets
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from integrations.state_writer import DEFAULT_ORGANISM_ID, _get_conn
 from integrations.wallet import get_native_balance
 from integrations.execution_policy import ExecutionPolicy, get_policy, policy_from_organism
+
+MIN_OWNER_SEPOLIA_ETH = Decimal(os.getenv("MIN_OWNER_SEPOLIA_ETH", "0.5"))
 
 
 def _now() -> str:
@@ -43,6 +45,34 @@ def _bool_env(name: str, default: bool = False) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _decimal_value(value, fallback: str = "0") -> Decimal:
+    try:
+        return Decimal(str(value if value is not None and value != "" else fallback))
+    except (InvalidOperation, ValueError) as e:
+        raise ValueError("amount must be a decimal value") from e
+
+
+def get_owner_network_balances(owner_wallet: str) -> dict:
+    """Return owner-wallet balances used by deploy gating."""
+    balances: dict[str, dict] = {}
+    for network in ("ethereum", "sepolia"):
+        try:
+            amount = get_native_balance(owner_wallet, network)
+            balances[network] = {
+                "balance": amount,
+                "ok": network != "sepolia" or Decimal(str(amount)) >= MIN_OWNER_SEPOLIA_ETH,
+                "min_required": str(MIN_OWNER_SEPOLIA_ETH) if network == "sepolia" else None,
+            }
+        except Exception as e:
+            balances[network] = {
+                "balance": None,
+                "ok": False if network == "sepolia" else None,
+                "min_required": str(MIN_OWNER_SEPOLIA_ETH) if network == "sepolia" else None,
+                "error": str(e),
+            }
+    return balances
 
 
 def _row_to_organism(row) -> dict | None:
@@ -173,14 +203,27 @@ def _assign_keeperhub_wallet(conn, organism_id: str, network: str) -> dict | Non
 def create_organism(owner_wallet: str, owner_chain_id: int | None, payload: dict) -> dict:
     organism_id = f"org_{secrets.token_urlsafe(10).replace('-', '').replace('_', '').lower()}"
     network = (payload.get("network") or "sepolia").lower()
+    if network != "sepolia":
+        raise ValueError("judge-ready deploys are Sepolia-only for now")
+    owner_sepolia_balance = _decimal_value(get_native_balance(owner_wallet, "sepolia"))
+    if owner_sepolia_balance < MIN_OWNER_SEPOLIA_ETH:
+        raise ValueError(
+            f"Sepolia deploy requires at least {MIN_OWNER_SEPOLIA_ETH} Sepolia ETH in the owner wallet"
+        )
     now = _now()
 
     conn = _get_conn()
     wallet = _assign_keeperhub_wallet(conn, organism_id, network)
+    if not wallet:
+        conn.close()
+        raise ValueError(
+            "No Sepolia execution wallet is available. Seed KEEPERHUB_WALLET_POOL before deploying organisms."
+        )
     wallet_address = wallet["wallet_address"] if wallet else None
     wallet_label = wallet["wallet_label"] if wallet else None
     sponsored_start = bool(wallet_address) and _bool_env("KEEPERHUB_SPONSORED_START", False)
-    status = "sponsored" if sponsored_start else "needs_funding" if wallet_address else "needs_execution_wallet"
+    expected_amount = _decimal_value(payload.get("treasury_target_amount"), fallback="0")
+    status = "sponsored" if sponsored_start else "funded" if expected_amount <= 0 else "needs_funding"
 
     conn.execute(
         """INSERT INTO organisms
@@ -198,7 +241,7 @@ def create_organism(owner_wallet: str, owner_chain_id: int | None, payload: dict
             payload.get("risk_profile") or "balanced",
             int(payload.get("max_child_agents") or 3),
             _json_list(payload.get("domains"), default=["DeFi Trading", "Data Services"]),
-            str(payload.get("treasury_target_amount") or "0"),
+            str(expected_amount),
             payload.get("treasury_asset") or "ETH",
             wallet_address,
             wallet_label,
@@ -237,10 +280,10 @@ def create_organism(owner_wallet: str, owner_chain_id: int | None, payload: dict
             network,
             payload.get("treasury_asset") or "ETH",
             wallet_address or "",
-            str(payload.get("treasury_target_amount") or "0"),
+            str(expected_amount),
             "0",
             None,
-            "sponsored" if sponsored_start else "pending" if wallet_address else "needs_execution_wallet",
+            "sponsored" if sponsored_start else "funded" if expected_amount <= 0 else "pending",
             now,
             now,
         ),
@@ -358,7 +401,7 @@ def check_funding(organism_id: str) -> dict:
     received = get_native_balance(row["deposit_address"], row["network"])
     expected = Decimal(str(row["expected_amount"] or "0"))
     received_dec = Decimal(str(received))
-    status = "funded" if received_dec >= expected and received_dec > 0 else "pending"
+    status = "funded" if expected <= 0 or (received_dec >= expected and received_dec > 0) else "pending"
     now = _now()
     conn.execute(
         """UPDATE organism_funding

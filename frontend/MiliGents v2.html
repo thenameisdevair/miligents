@@ -1017,6 +1017,7 @@ html[data-theme="dark"] .axl-line .type.DEPLOY{color:#e8c46a}
             <div class="a"><span class="d" id="deploy-wallet-dot"></span><span id="wallet-addr-deploy">0x0000…0000</span> <span class="muted" id="deploy-wallet-status">· not signed</span></div>
             <span class="net" id="deploy-wallet-network">Wallet</span>
           </div>
+          <div class="amt-helper" id="owner-balance-line">Mainnet ETH: — · Sepolia ETH: — · min 0.5 Sepolia ETH</div>
         </div>
 
         <div class="field">
@@ -1433,6 +1434,7 @@ sl.dispatchEvent(new Event('input'));
 /* ================= API WIRING ================= */
 const API = (typeof window !== 'undefined' && window.MILIGENTS_API) || 'http://localhost:8081';
 const DEFAULT_OG_STORAGE_SCAN_URL = 'https://storagescan-galileo.0g.ai/address/0xe84503EBC06fcbCC00f3c2C81F34813837F4A4ae';
+const SEPOLIA_CHAIN_ID = 11155111;
 const ACTIVITY_AGENTS = [
   { id: 'originator', name: 'ORIGINATOR' },
   { id: 'specialist', name: 'SPECIALIST' },
@@ -1463,6 +1465,7 @@ const deployState = {
   session: null,
   organism: null,
   funding: [],
+  ownerBalances: null,
   error: null,
 };
 
@@ -1486,6 +1489,17 @@ function chainLabel(chainId) {
   if (id === 11155111) return 'Sepolia';
   if (id === 16601 || id === 16602) return '0G';
   return chainId ? `Chain ${chainId}` : 'Wallet';
+}
+
+function minSepoliaEth() {
+  return Number(frontendConfig.min_owner_sepolia_eth || 0.5);
+}
+
+function formatEth(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  return `${n.toFixed(4)} ETH`;
 }
 
 function currentPageId() {
@@ -1630,11 +1644,21 @@ function renderDeployState() {
   const status = document.getElementById('deploy-wallet-status');
   const net = document.getElementById('deploy-wallet-network');
   const dot = document.getElementById('deploy-wallet-dot');
+  const balanceLine = document.getElementById('owner-balance-line');
   if (!btn) return;
 
   if (deployState.ownerWallet) renderWalletAddress(deployState.ownerWallet);
-  if (net) net.textContent = chainLabel(deployState.chainId);
+  if (net) net.textContent = 'Sepolia deploy';
   if (dot) dot.style.background = deployState.session ? 'var(--mint-2)' : 'var(--gold)';
+  if (balanceLine) {
+    const balances = deployState.ownerBalances || {};
+    const eth = balances.ethereum || {};
+    const sep = balances.sepolia || {};
+    const sepOk = sep.ok === true;
+    const sepText = sep.error ? `Sepolia error: ${sep.error.slice(0, 42)}` : `Sepolia ETH: ${formatEth(sep.balance)}`;
+    balanceLine.innerHTML = `Mainnet ETH: <b>${formatEth(eth.balance)}</b> · ${sepText} · min <b>${minSepoliaEth()} Sepolia ETH</b>${sepOk ? ' · ready' : ''}`;
+    balanceLine.style.color = sepOk || !deployState.session ? '' : 'var(--coral-2)';
+  }
 
   const funding = deployState.funding?.[0];
   const deposit = funding?.deposit_address;
@@ -1660,7 +1684,7 @@ function renderDeployState() {
     connected_not_signed: 'Sign to create organism',
     signed_ready_to_deploy: 'Create organism',
     creating_organism: 'Creating organism...',
-    needs_execution_wallet: 'Execution wallet pending',
+    needs_execution_wallet: 'Retry deploy',
     needs_funding: 'Check funding',
     funded: 'Activate organism',
     funding_detected: 'Activate organism',
@@ -1671,7 +1695,8 @@ function renderDeployState() {
     error: 'Retry',
   }[deployState.status] || 'Create organism';
   btn.textContent = buttonText;
-  btn.disabled = deployState.status === 'creating_organism' || deployState.status === 'needs_execution_wallet';
+  const sepoliaReady = !deployState.session || deployState.ownerBalances?.sepolia?.ok === true || deployState.status !== 'signed_ready_to_deploy';
+  btn.disabled = deployState.status === 'creating_organism' || !sepoliaReady;
   if (fundBtn) {
     fundBtn.style.display = deployState.status === 'needs_funding' || deployState.status === 'funding_pending' ? '' : 'none';
     fundBtn.disabled = deployState.status === 'funding_pending';
@@ -1687,9 +1712,14 @@ function renderDeployState() {
       right.textContent = deployState.status === 'sponsored'
         ? `${truncateAddr(deposit)} · platform pre-funded execution wallet`
         : `${truncateAddr(deposit)} · agents spend only within policy`;
+    } else if (deployState.status === 'needs_execution_wallet') {
+      left.textContent = 'EXECUTION WALLET UNAVAILABLE';
+      right.textContent = 'SEED KEEPERHUB_WALLET_POOL, THEN RETRY DEPLOY';
     } else if (deployState.session) {
       left.textContent = 'OWNER VERIFIED';
-      right.textContent = 'READY TO CREATE ORGANISM';
+      right.textContent = deployState.ownerBalances?.sepolia?.ok
+        ? 'READY TO CREATE SEPOLIA ORGANISM'
+        : `NEEDS ${minSepoliaEth()} SEPOLIA ETH`;
     } else {
       left.textContent = 'OWNER SIGNATURE REQUIRED';
       right.textContent = 'NO FUNDS MOVE DURING SIGN-IN';
@@ -1725,6 +1755,7 @@ async function loadAuthSession() {
         chainId: data.session.chain_id,
         error: null,
       });
+      await refreshOwnerBalances();
       await loadOwnedOrganisms();
     } else {
       renderDeployState();
@@ -1734,14 +1765,65 @@ async function loadAuthSession() {
   }
 }
 
+async function refreshOwnerBalances() {
+  if (!deployState.session) return null;
+  try {
+    const data = await fetch(`${API}/api/wallet/balances`, { credentials: 'include' }).then(r => r.json());
+    if (data.status !== 'ok') throw new Error(data.error || 'Could not read owner balances');
+    setDeployState({ ownerBalances: data.balances || {}, error: null });
+    return data.balances || {};
+  } catch (e) {
+    setDeployState({
+      ownerBalances: {
+        sepolia: { ok: false, error: e.message || String(e), min_required: String(minSepoliaEth()) },
+        ethereum: {},
+      },
+    });
+    return null;
+  }
+}
+
+async function ensureSepoliaNetwork(provider) {
+  if (!provider?.request) return;
+  const chainHex = await provider.request({ method: 'eth_chainId' }).catch(() => null);
+  const current = chainHex ? parseInt(chainHex, 16) : Number(deployState.chainId);
+  if (current === SEPOLIA_CHAIN_ID) {
+    setDeployState({ chainId: SEPOLIA_CHAIN_ID });
+    return;
+  }
+  try {
+    await provider.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: '0xaa36a7' }],
+    });
+  } catch (e) {
+    if (e?.code === 4902) {
+      await provider.request({
+        method: 'wallet_addEthereumChain',
+        params: [{
+          chainId: '0xaa36a7',
+          chainName: 'Sepolia',
+          nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
+          rpcUrls: ['https://rpc.sepolia.org'],
+          blockExplorerUrls: ['https://sepolia.etherscan.io'],
+        }],
+      });
+    } else {
+      throw new Error('Switch wallet to Sepolia before deploying');
+    }
+  }
+  setDeployState({ chainId: SEPOLIA_CHAIN_ID });
+}
+
 async function connectAndSignOwnerWallet() {
   try {
     const connection = await connectWithReownAppKit() || await connectWithInjectedWallet();
     const { provider, address, chainId } = connection;
     activeWalletProvider = provider;
     setDeployState({ status: 'connected_not_signed', ownerWallet: address, chainId, error: null });
+    await ensureSepoliaNetwork(provider);
 
-    const nonceRes = await fetch(`${API}/api/auth/nonce?address=${encodeURIComponent(address)}&chain_id=${encodeURIComponent(chainId)}`, { credentials: 'include' });
+    const nonceRes = await fetch(`${API}/api/auth/nonce?address=${encodeURIComponent(address)}&chain_id=${encodeURIComponent(SEPOLIA_CHAIN_ID)}`, { credentials: 'include' });
     const nonceData = await nonceRes.json();
     if (!nonceData.auth?.message) throw new Error(nonceData.error || 'Could not create auth nonce');
 
@@ -1753,7 +1835,7 @@ async function connectAndSignOwnerWallet() {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address, chain_id: chainId, message: nonceData.auth.message, signature }),
+      body: JSON.stringify({ address, chain_id: SEPOLIA_CHAIN_ID, message: nonceData.auth.message, signature }),
     });
     const verified = await verifyRes.json();
     if (verified.status !== 'ok') throw new Error(verified.error || 'Signature verification failed');
@@ -1761,9 +1843,10 @@ async function connectAndSignOwnerWallet() {
       status: 'signed_ready_to_deploy',
       session: verified.session,
       ownerWallet: verified.session.owner_wallet,
-      chainId: verified.session.chain_id,
+      chainId: SEPOLIA_CHAIN_ID,
       error: null,
     });
+    await refreshOwnerBalances();
     await loadOwnedOrganisms();
   } catch (e) {
     setDeployState({ status: 'error', error: e.message || String(e) });
@@ -1778,7 +1861,8 @@ function collectOrganismPayload() {
     max_child_agents: Number(document.getElementById('agent-slider')?.value || 3),
     treasury_target_amount: document.getElementById('treasury-input')?.value || '0',
     treasury_asset: getSelectedToken(),
-    network: Number(deployState.chainId) === 8453 ? 'base' : 'sepolia',
+    network: 'sepolia',
+    allowed_networks: ['sepolia'],
   };
 }
 
@@ -1795,6 +1879,11 @@ function organismQuery(prefix = '?') {
 async function createOrganismFromDeploy() {
   setDeployState({ status: 'creating_organism', error: null });
   try {
+    const balances = await refreshOwnerBalances();
+    if (!balances?.sepolia?.ok) {
+      throw new Error(`Deploy requires at least ${minSepoliaEth()} Sepolia ETH in this wallet`);
+    }
+    if (activeWalletProvider) await ensureSepoliaNetwork(activeWalletProvider);
     const res = await fetch(`${API}/api/organisms`, {
       method: 'POST',
       credentials: 'include',
@@ -1957,7 +2046,7 @@ async function activateActiveOrganism() {
 
 async function handleDeployAction() {
   if (!deployState.session) return connectAndSignOwnerWallet();
-  if (deployState.status === 'signed_ready_to_deploy' || deployState.status === 'error') return createOrganismFromDeploy();
+  if (deployState.status === 'signed_ready_to_deploy' || deployState.status === 'needs_execution_wallet' || deployState.status === 'error') return createOrganismFromDeploy();
   if (deployState.status === 'active' || deployState.status === 'sponsored') return go('dashboard');
   if (deployState.status === 'needs_funding' || deployState.status === 'funding_pending') return checkFundingForActiveOrganism();
   if (deployState.status === 'funded' || deployState.status === 'funding_detected' || deployState.status === 'paused') return activateActiveOrganism();

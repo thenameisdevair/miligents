@@ -256,15 +256,20 @@ Then the flow is:
 
 ```text
 1. Open the frontend.
-2. Deploy page → connect wallet → sign ownership message.
-3. Configure treasury/domain/risk.
-4. Create organism.
-5. Use sponsored start, or fund only the displayed execution wallet address.
-6. Click Check funding if manually funded.
-7. Open Dashboard.
-8. Click Run now to trigger an owner-scoped hosted agent cycle.
-9. Dashboard, KeeperHub actions, storage roots, and iNFTs are filtered by that organism_id.
+2. Deploy page → connect wallet → switch/sign on Sepolia.
+3. Confirm the owner wallet has at least 0.5 Sepolia ETH.
+4. Configure treasury/domain/risk.
+5. Create organism.
+6. Use sponsored start, or fund only the displayed execution wallet address.
+7. Click Check funding if manually funded.
+8. Open Dashboard.
+9. Click Run now to trigger an owner-scoped hosted agent cycle.
+10. Dashboard, KeeperHub actions, storage roots, and iNFTs are filtered by that organism_id.
 ```
+
+Judge-ready deploys are intentionally Sepolia-only for now. The API rejects
+non-Sepolia organism creation and rejects owner wallets with less than
+`MIN_OWNER_SEPOLIA_ETH` Sepolia ETH. Set that env var to adjust the threshold.
 
 Run the deploy-organism verifier:
 

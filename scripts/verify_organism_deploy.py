@@ -12,6 +12,7 @@ This checks:
 import os
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -122,7 +123,39 @@ def main() -> int:
         ).fetchone()
         if wallet["status"] != "available":
             raise AssertionError("keeperhub wallet pool seed failed")
+        conn.commit()
         conn.close()
+
+        if "requests" not in sys.modules:
+            sys.modules["requests"] = types.SimpleNamespace()
+        if "dotenv" not in sys.modules:
+            sys.modules["dotenv"] = types.SimpleNamespace(load_dotenv=lambda *args, **kwargs: None)
+
+        import integrations.organisms as organisms
+        organisms.get_native_balance = lambda address, network: "0.500000" if network == "sepolia" else "0"
+        bundle = organisms.create_organism(
+            owner_wallet="0x" + "3" * 40,
+            owner_chain_id=11155111,
+            payload={
+                "network": "sepolia",
+                "treasury_target_amount": "0",
+                "domains": ["DeFi Trading"],
+            },
+        )
+        if bundle["organism"]["status"] != "funded":
+            raise AssertionError(f"zero-target Sepolia organism should be funded: {bundle['organism']['status']}")
+
+        try:
+            organisms.create_organism(
+                owner_wallet="0x" + "4" * 40,
+                owner_chain_id=1,
+                payload={"network": "base", "treasury_target_amount": "0"},
+            )
+        except ValueError as e:
+            if "Sepolia-only" not in str(e):
+                raise
+        else:
+            raise AssertionError("non-Sepolia organism creation was allowed")
 
         state_db = Path(tmp) / "state.db"
         if not state_db.exists():
