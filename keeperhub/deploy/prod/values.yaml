@@ -1,0 +1,80 @@
+replicaCount: 2
+
+service:
+  enabled: true
+  name: keeperhub-mcp-prod
+  port: 3000
+  type: ClusterIP
+  containerPort: 3000
+  tls:
+    enabled: true
+    issuerName: cloudflare
+
+ingress:
+  enabled: true
+  hosts:
+    - mcp.keeperhub.com
+  annotations:
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "true"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.tls.options: traefik-cloudflare-origin-pull@kubernetescrd
+
+image:
+  repository: ${ECR_REGISTRY}/keeperhub-mcp-prod
+  tag: "${IMAGE_TAG}"
+  pullPolicy: Always
+
+deployment:
+  enabled: true
+
+serviceAccount:
+  create: false
+
+podAnnotations:
+  reloader.stakater.com/auto: "true"
+
+resources:
+  limits:
+    memory: 512Mi
+  requests:
+    cpu: 10m
+    memory: 256Mi
+
+env:
+  LOG_LEVEL:
+    type: kv
+    value: "info"
+  NODE_ENV:
+    type: kv
+    value: "production"
+  PORT:
+    type: kv
+    value: "3000"
+  KEEPERHUB_API_URL:
+    type: kv
+    value: "http://keeperhub-common:3000"
+  MCP_API_KEY:
+    type: parameterStore
+    name: mcp-api-key
+    parameter_name: /eks/techops-prod/keeperhub-mcp/mcp-api-key
+  KEEPERHUB_API_KEY:
+    type: parameterStore
+    name: keeperhub-api-key
+    parameter_name: /eks/techops-prod/keeperhub-mcp/keeperhub-api-key
+
+externalSecrets:
+  clusterSecretStoreName: techops-prod
+
+livenessProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 30
+  httpGet:
+    path: /health
+    port: 3000
+readinessProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 30
+  httpGet:
+    path: /health
+    port: 3000

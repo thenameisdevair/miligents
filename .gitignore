@@ -8,3 +8,19 @@ node_modules/
 venv/
 keeperhub/dist/
 keeperhub/node_modules/
+
+# Node / build artifacts
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Nested duplicate repo
+keeperhub/keeperhub-mcp/

@@ -1,0 +1,144 @@
+{
+  "plugin": {
+    "type": "web3",
+    "label": "Web3",
+    "description": "Blockchain and cryptocurrency operations on EVM-compatible networks",
+    "category": "Web3",
+    "singleConnection": true,
+    "hasCredentials": true,
+    "credentials": {
+      "formFields": [
+        {
+          "id": "walletType",
+          "label": "Wallet Type",
+          "type": "select",
+          "required": true,
+          "options": [
+            { "label": "Para", "value": "para" },
+            { "label": "Private Key", "value": "privateKey" }
+          ]
+        },
+        {
+          "id": "privateKey",
+          "label": "Private Key",
+          "type": "password",
+          "required": false,
+          "helpText": "Only required if not using Para",
+          "showIf": { "field": "walletType", "value": "privateKey" }
+        }
+      ]
+    },
+    "steps": [
+      {
+        "slug": "check-balance",
+        "label": "Check Balance",
+        "description": "Get ETH balance of a wallet address",
+        "category": "Query",
+        "stepFunction": "checkBalance",
+        "stepImportPath": "./steps/check-balance",
+        "configFields": [
+          {
+            "key": "network",
+            "label": "Network",
+            "type": "chain-select",
+            "required": true,
+            "chainTypeFilter": "evm",
+            "placeholder": "Select blockchain network",
+            "example": "ethereum"
+          },
+          {
+            "key": "address",
+            "label": "Wallet Address",
+            "type": "text",
+            "required": true,
+            "placeholder": "0x...",
+            "example": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb3",
+            "helpText": "Ethereum wallet address to check"
+          }
+        ],
+        "outputFields": [
+          {
+            "field": "success",
+            "description": "Whether the operation succeeded"
+          },
+          {
+            "field": "balance",
+            "description": "Wallet balance in ETH"
+          },
+          {
+            "field": "balanceWei",
+            "description": "Wallet balance in Wei"
+          },
+          {
+            "field": "address",
+            "description": "The checked wallet address"
+          }
+        ]
+      },
+      {
+        "slug": "transfer-funds",
+        "label": "Transfer Funds",
+        "description": "Send ETH to another address",
+        "category": "Action",
+        "stepFunction": "transferFunds",
+        "stepImportPath": "./steps/transfer-funds",
+        "configFields": [
+          {
+            "key": "network",
+            "label": "Network",
+            "type": "chain-select",
+            "required": true,
+            "chainTypeFilter": "evm"
+          },
+          {
+            "key": "recipientAddress",
+            "label": "Recipient Address",
+            "type": "text",
+            "required": true,
+            "placeholder": "0x...",
+            "example": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb3"
+          },
+          {
+            "key": "amount",
+            "label": "Amount (ETH)",
+            "type": "number",
+            "required": true,
+            "min": 0,
+            "step": 0.001,
+            "placeholder": "0.1"
+          },
+          {
+            "key": "gasLimit",
+            "label": "Gas Limit",
+            "type": "number",
+            "required": false,
+            "default": 21000,
+            "helpText": "Optional custom gas limit"
+          }
+        ],
+        "outputFields": [
+          {
+            "field": "success",
+            "description": "Whether the transfer succeeded"
+          },
+          {
+            "field": "transactionHash",
+            "description": "Transaction hash on blockchain"
+          },
+          {
+            "field": "blockNumber",
+            "description": "Block number where transaction was included"
+          },
+          {
+            "field": "gasUsed",
+            "description": "Amount of gas used"
+          },
+          {
+            "field": "error",
+            "description": "Error message if transfer failed"
+          }
+        ]
+      }
+    ]
+  }
+}

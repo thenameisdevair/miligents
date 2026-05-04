@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "keeperhub": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "KEEPERHUB_API_KEY",
+        "keeperhub-mcp"
+      ]
+    }
+  }
+}

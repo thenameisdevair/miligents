@@ -1,0 +1,16 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.KeeperHub/keeperhub-mcp",
+  "description": "MCP server for KeeperHub blockchain workflow automation",
+  "repository": {
+    "url": "https://github.com/KeeperHub/keeperhub-mcp",
+    "source": "github"
+  },
+  "version": "1.0.0",
+  "remotes": [
+    {
+      "type": "sse",
+      "url": "https://mcp.keeperhub.com/sse"
+    }
+  ]
+}

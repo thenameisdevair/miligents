@@ -1,0 +1,188 @@
+{
+  "id": "eth-balance-monitor-topup",
+  "name": "ETH Balance Monitor with Auto Top-up",
+  "description": "Monitor ETH wallet balance on a schedule and automatically transfer funds when balance drops below threshold",
+  "category": "monitoring",
+  "useCase": "Automatically maintain minimum ETH balance in a wallet by transferring funds from a funding wallet when the balance drops below a threshold. Useful for keeping smart contract wallets, bot wallets, or operational wallets funded.",
+  "difficulty": "beginner",
+  "tags": ["ethereum", "balance", "monitoring", "automation", "wallet-management"],
+  "requiredPlugins": ["web3", "sendgrid"],
+  "estimatedSetupTime": 5,
+  "nodes": [
+    {
+      "id": "schedule-trigger",
+      "type": "trigger",
+      "pluginType": "schedule",
+      "position": { "x": 100, "y": 200 },
+      "config": {
+        "cronExpression": "0 */4 * * *",
+        "description": "Check every 4 hours"
+      },
+      "label": "Schedule Trigger"
+    },
+    {
+      "id": "check-balance",
+      "type": "step",
+      "pluginType": "web3",
+      "stepSlug": "check-balance",
+      "position": { "x": 300, "y": 200 },
+      "config": {
+        "network": "ethereum",
+        "address": "{{env.MONITORED_WALLET_ADDRESS}}"
+      },
+      "label": "Check ETH Balance"
+    },
+    {
+      "id": "balance-condition",
+      "type": "condition",
+      "position": { "x": 500, "y": 200 },
+      "config": {
+        "conditions": [
+          {
+            "field": "{{check-balance.balance}}",
+            "operator": "<",
+            "value": "{{env.MIN_BALANCE_ETH}}"
+          }
+        ]
+      },
+      "label": "Balance < Threshold?"
+    },
+    {
+      "id": "transfer-funds",
+      "type": "step",
+      "pluginType": "web3",
+      "stepSlug": "transfer-funds",
+      "position": { "x": 700, "y": 150 },
+      "config": {
+        "network": "ethereum",
+        "amount": "{{env.TOPUP_AMOUNT_ETH}}",
+        "recipientAddress": "{{env.MONITORED_WALLET_ADDRESS}}"
+      },
+      "label": "Transfer ETH Top-up"
+    },
+    {
+      "id": "send-success-email",
+      "type": "step",
+      "pluginType": "sendgrid",
+      "stepSlug": "send-email",
+      "position": { "x": 900, "y": 150 },
+      "config": {
+        "to": "{{env.ALERT_EMAIL}}",
+        "subject": "Wallet Top-up Successful",
+        "content": "Transferred {{env.TOPUP_AMOUNT_ETH}} ETH to {{env.MONITORED_WALLET_ADDRESS}}. Transaction: {{transfer-funds.transactionHash}}"
+      },
+      "label": "Send Success Email"
+    },
+    {
+      "id": "send-failure-email",
+      "type": "step",
+      "pluginType": "sendgrid",
+      "stepSlug": "send-email",
+      "position": { "x": 900, "y": 250 },
+      "config": {
+        "to": "{{env.ALERT_EMAIL}}",
+        "subject": "Wallet Top-up Failed",
+        "content": "Failed to transfer ETH. Error: {{transfer-funds.error}}. Monitored wallet: {{env.MONITORED_WALLET_ADDRESS}} has balance: {{check-balance.balance}} ETH"
+      },
+      "label": "Send Failure Email"
+    },
+    {
+      "id": "log-healthy",
+      "type": "step",
+      "pluginType": "webhook",
+      "stepSlug": "send-webhook",
+      "position": { "x": 700, "y": 300 },
+      "config": {
+        "url": "{{env.LOGGING_WEBHOOK_URL}}",
+        "method": "POST",
+        "body": {
+          "status": "healthy",
+          "balance": "{{check-balance.balance}}",
+          "threshold": "{{env.MIN_BALANCE_ETH}}",
+          "timestamp": "{{$now}}"
+        }
+      },
+      "label": "Log Healthy Status"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "schedule-trigger",
+      "target": "check-balance"
+    },
+    {
+      "id": "e2",
+      "source": "check-balance",
+      "target": "balance-condition"
+    },
+    {
+      "id": "e3",
+      "source": "balance-condition",
+      "target": "transfer-funds",
+      "condition": "true"
+    },
+    {
+      "id": "e4",
+      "source": "balance-condition",
+      "target": "log-healthy",
+      "condition": "false"
+    },
+    {
+      "id": "e5",
+      "source": "transfer-funds",
+      "target": "send-success-email",
+      "condition": "{{transfer-funds.success}}"
+    },
+    {
+      "id": "e6",
+      "source": "transfer-funds",
+      "target": "send-failure-email",
+      "condition": "{{!transfer-funds.success}}"
+    }
+  ],
+  "setupGuide": {
+    "steps": [
+      {
+        "step": 1,
+        "title": "Set Environment Variables",
+        "description": "Configure the following environment variables in your KeeperHub organization settings:\n- MONITORED_WALLET_ADDRESS: The wallet address to monitor\n- MIN_BALANCE_ETH: Minimum balance threshold (e.g., 0.1)\n- TOPUP_AMOUNT_ETH: Amount to transfer when balance is low (e.g., 0.5)\n- ALERT_EMAIL: Email address for notifications\n- LOGGING_WEBHOOK_URL: Optional webhook URL for status logging"
+      },
+      {
+        "step": 2,
+        "title": "Configure Web3 Connection",
+        "description": "Ensure your Para wallet has sufficient ETH to perform top-ups. The wallet will be used to send funds to the monitored address.",
+        "nodeId": "transfer-funds"
+      },
+      {
+        "step": 3,
+        "title": "Configure SendGrid",
+        "description": "Add SendGrid API key in your KeeperHub integrations. This enables email notifications for successful and failed top-ups.",
+        "nodeId": "send-success-email"
+      },
+      {
+        "step": 4,
+        "title": "Adjust Schedule",
+        "description": "Modify the cron expression in the Schedule Trigger to change monitoring frequency. Default is every 4 hours (0 */4 * * *).",
+        "nodeId": "schedule-trigger"
+      },
+      {
+        "step": 5,
+        "title": "Test Workflow",
+        "description": "Click 'Test Workflow' to perform a manual check. Verify that balance checking works correctly before enabling the schedule."
+      }
+    ],
+    "prerequisites": [
+      "Para wallet with sufficient ETH for top-ups",
+      "SendGrid account and API key",
+      "Target wallet address to monitor"
+    ],
+    "configurationTips": [
+      "Set MIN_BALANCE_ETH higher than gas costs to ensure transactions can complete",
+      "Set TOPUP_AMOUNT_ETH to cover expected usage plus buffer",
+      "Test with small amounts first on a testnet",
+      "Monitor your funding wallet balance to ensure it doesn't run out",
+      "Consider setting up multiple funding sources for redundancy"
+    ]
+  }
+}
