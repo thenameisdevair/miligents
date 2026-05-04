@@ -2431,7 +2431,7 @@ function renderServices(services) {
 
 async function fetchAndRender() {
   try {
-    if (currentPageId() === 'dashboard' && deployState.session && !activeOrganismId()) {
+    if (currentPageId() === 'dashboard' && deployState.session && !scopedOrganismId()) {
       clearDashboardData();
       return;
     }
