@@ -9,7 +9,7 @@ import { mintINFT, getINFT, updateINFT } from "./inft";
 const app = express();
 app.use(express.json());
 
-const PORT = parseInt(process.env.BRIDGE_PORT || "3100");
+const PORT = parseInt(process.env.PORT || process.env.BRIDGE_PORT || "3100");
 
 // ─── Health ───────────────────────────────────────────────
 
