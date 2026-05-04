@@ -1507,7 +1507,9 @@ function currentPageId() {
 }
 
 function scopedOrganismId() {
-  return currentPageId() === 'dashboard' ? activeOrganismId() : '';
+  // Public hackathon demo: dashboard reads the shared Render organism state.
+  // Wallet connection still works, but dashboard data stays scoped to local-default.
+  return currentPageId() === 'dashboard' ? 'local-default' : '';
 }
 
 function ownerWalletKey() {
