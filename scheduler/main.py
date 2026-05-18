@@ -1,26 +1,16 @@
 """
 scheduler/main.py
 
-MiliGents Scheduler — triggers agent cycles on a configurable interval.
+MiliGents Scheduler — triggers agent cycles by calling agent run()
+functions directly (no HTTP, no separate containers needed).
 
-Behaviour:
-- Runs every CYCLE_INTERVAL_MINUTES (default 10).
-- Before each cycle checks STATE_DIR/scheduler.paused flag file.
-  If the file exists, skips this cycle and waits again.
-- Triggers agents sequentially: originator → specialist → execution.
-  Polls each agent's /status endpoint until running=false before
-  triggering the next (max AGENT_TIMEOUT_MINUTES per agent).
-- Writes cycle start/complete records to state.db via state_writer.
-
-Pause/resume controlled by API server writing/deleting scheduler.paused.
+Works both as:
+  - Standalone process:  python3 scheduler/main.py
+  - Background thread:   import and call main() from api/server.py
 
 Environment variables:
     CYCLE_INTERVAL_MINUTES  Minutes between cycles (default 10)
-    AGENT_TIMEOUT_MINUTES   Max wait per agent before moving on (default 15)
-    STATE_DIR               Shared state volume path (default /app/state)
-    ORIGINATOR_URL          http://originator:8001
-    SPECIALIST_URL          http://specialist:8002
-    EXECUTION_URL           http://execution:8003
+    STATE_DIR               Shared state path (default /app/state)
 """
 
 import os
@@ -29,9 +19,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-import requests
-
-sys.path.insert(0, "/app")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from integrations.state_writer import (
     write_cycle_start,
@@ -45,19 +33,17 @@ from integrations.state_writer import (
 )
 from integrations.organisms import list_organisms
 
+# Direct agent imports — no HTTP needed
+from agents.originator.main import run as run_originator
+from agents.research_specialist.main import run as run_specialist
+from agents.execution.main import run as run_execution
+
 # ─── Config ───────────────────────────────────────────────────────────────────
 
 CYCLE_INTERVAL_MINUTES = int(os.getenv("CYCLE_INTERVAL_MINUTES", "10"))
-AGENT_TIMEOUT_MINUTES  = int(os.getenv("AGENT_TIMEOUT_MINUTES", "15"))
 STATE_DIR              = os.getenv("STATE_DIR", "/app/state")
 PAUSE_FLAG             = os.path.join(STATE_DIR, "scheduler.paused")
-
-ORIGINATOR_URL = os.getenv("ORIGINATOR_URL", "http://originator:8001")
-SPECIALIST_URL = os.getenv("SPECIALIST_URL", "http://specialist:8002")
-EXECUTION_URL  = os.getenv("EXECUTION_URL",  "http://execution:8003")
-
-POLL_INTERVAL_SECONDS = 15
-STARTUP_DELAY_SECONDS = 30
+STARTUP_DELAY_SECONDS  = 30
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -75,79 +61,48 @@ def log(msg: str):
     print(f"[Scheduler {ts}] {msg}", flush=True)
 
 
-def wait_for_agent(name: str, url: str, timeout_minutes: int, organism_id: str, cycle_id: str) -> str:
+def run_agent(name: str, fn, organism_id: str, cycle_id: str) -> str:
     """
-    Trigger an agent via POST /run, then poll GET /status until
-    running=false. Returns 'complete' or 'timeout'.
+    Call an agent's run() function directly.
+    Returns 'complete' or 'error'.
     """
+    log(f"Running {name}...")
     try:
-        resp = requests.post(
-            f"{url}/run",
-            json={"organism_id": organism_id, "cycle_id": cycle_id},
-            timeout=10,
-        )
-        if resp.status_code == 409:
-            log(f"{name} already running — waiting for it to finish")
-        elif resp.status_code != 200:
-            log(f"{name} /run returned {resp.status_code} — skipping")
-            return "error"
-        else:
-            log(f"{name} triggered successfully")
+        fn(organism_id=organism_id, cycle_id=cycle_id)
+        log(f"{name} complete")
+        return "complete"
     except Exception as e:
-        log(f"{name} /run failed: {e}")
+        log(f"{name} failed: {e}")
         return "error"
 
-    deadline = time.time() + (timeout_minutes * 60)
-    while time.time() < deadline:
-        time.sleep(POLL_INTERVAL_SECONDS)
-        try:
-            resp = requests.get(f"{url}/status", timeout=5)
-            data = resp.json()
-            if not data.get("running", True):
-                log(f"{name} finished")
-                return "complete"
-        except Exception as e:
-            log(f"{name} /status poll failed: {e}")
 
-    log(f"{name} timed out after {timeout_minutes} minutes — moving on")
-    return "timeout"
-
-
-# ─── Main Loop ────────────────────────────────────────────────────────────────
-
-def active_organism_ids() -> list[str]:
-    try:
-        organisms = list_organisms()
-        ids = [
-            org["organism_id"]
-            for org in organisms
-            if org.get("status") in {"active", "funded", "sponsored"} and org.get("organism_id")
-        ]
-        return ids or [DEFAULT_ORGANISM_ID]
-    except Exception as e:
-        log(f"Could not load organisms, falling back to {DEFAULT_ORGANISM_ID}: {e}")
-        return [DEFAULT_ORGANISM_ID]
-
+# ─── Cycle ────────────────────────────────────────────────────────────────────
 
 def run_cycle(organism_id: str):
     cycle_id = f"cycle_{organism_id}_{now_id()}"
     log(f"Starting cycle {cycle_id} for {organism_id}")
+
     set_current_organism(organism_id)
     write_cycle_start(cycle_id, organism_id=organism_id)
     set_current_cycle(cycle_id)
-    write_activity("scheduler", "cycle", f"started {cycle_id}", cycle_id=cycle_id, organism_id=organism_id)
+    write_activity(
+        "scheduler", "cycle",
+        f"started {cycle_id}",
+        cycle_id=cycle_id,
+        organism_id=organism_id,
+    )
 
-    write_activity("scheduler", "task", "triggering originator", cycle_id=cycle_id, organism_id=organism_id)
-    o_status = wait_for_agent("originator", ORIGINATOR_URL, AGENT_TIMEOUT_MINUTES, organism_id, cycle_id)
-    write_activity("scheduler", "status", f"originator → {o_status}", cycle_id=cycle_id, organism_id=organism_id)
+    o_status = run_agent("originator", run_originator, organism_id, cycle_id)
+    write_activity("scheduler", "status", f"originator → {o_status}",
+                   cycle_id=cycle_id, organism_id=organism_id)
 
-    write_activity("scheduler", "task", "triggering specialist", cycle_id=cycle_id, organism_id=organism_id)
-    s_status = wait_for_agent("specialist", SPECIALIST_URL, AGENT_TIMEOUT_MINUTES, organism_id, cycle_id)
-    write_activity("scheduler", "status", f"specialist → {s_status}", cycle_id=cycle_id, organism_id=organism_id)
+    s_status = run_agent("specialist", run_specialist, organism_id, cycle_id)
+    write_activity("scheduler", "status", f"specialist → {s_status}",
+                   cycle_id=cycle_id, organism_id=organism_id)
 
-    write_activity("scheduler", "task", "triggering execution", cycle_id=cycle_id, organism_id=organism_id)
-    e_status = wait_for_agent("execution",  EXECUTION_URL,  AGENT_TIMEOUT_MINUTES, organism_id, cycle_id)
-    write_activity("scheduler", "status", f"execution → {e_status}", cycle_id=cycle_id, organism_id=organism_id)
+    e_status = run_agent("execution", run_execution, organism_id, cycle_id)
+    write_activity("scheduler", "status", f"execution → {e_status}",
+                   cycle_id=cycle_id, organism_id=organism_id)
 
     final = "complete" if all(
         s in ("complete", "timeout") for s in [o_status, s_status, e_status]
@@ -161,21 +116,40 @@ def run_cycle(organism_id: str):
         execution_status=e_status,
         organism_id=organism_id,
     )
-    write_activity("scheduler", "cycle", f"finished {cycle_id} ({final})", cycle_id=cycle_id, organism_id=organism_id)
+    write_activity("scheduler", "cycle", f"finished {cycle_id} ({final})",
+                   cycle_id=cycle_id, organism_id=organism_id)
     clear_current_cycle()
     clear_current_organism()
     log(f"Cycle {cycle_id} done — status: {final}")
 
 
+# ─── Organism list ─────────────────────────────────────────────────────────────
+
+def active_organism_ids() -> list[str]:
+    try:
+        organisms = list_organisms()
+        ids = [
+            org["organism_id"]
+            for org in organisms
+            if org.get("status") in {"active", "funded", "sponsored"}
+            and org.get("organism_id")
+        ]
+        return ids or [DEFAULT_ORGANISM_ID]
+    except Exception as e:
+        log(f"Could not load organisms, falling back to {DEFAULT_ORGANISM_ID}: {e}")
+        return [DEFAULT_ORGANISM_ID]
+
+
+# ─── Main loop ────────────────────────────────────────────────────────────────
+
 def main():
-    log(f"Scheduler started. Interval: {CYCLE_INTERVAL_MINUTES}m. "
-        f"Agent timeout: {AGENT_TIMEOUT_MINUTES}m.")
-    log(f"Waiting {STARTUP_DELAY_SECONDS}s for agents to become ready...")
+    log(f"Scheduler started. Interval: {CYCLE_INTERVAL_MINUTES}m")
+    log(f"Waiting {STARTUP_DELAY_SECONDS}s for services to become ready...")
     time.sleep(STARTUP_DELAY_SECONDS)
 
     while True:
         if is_paused():
-            log("Paused — skipping this cycle. Delete scheduler.paused to resume.")
+            log("Paused — skipping cycle. Delete scheduler.paused to resume.")
         else:
             try:
                 for organism_id in active_organism_ids():
@@ -183,7 +157,7 @@ def main():
             except Exception as e:
                 log(f"Cycle failed with unexpected error: {e}")
 
-        log(f"Sleeping {CYCLE_INTERVAL_MINUTES} minutes until next cycle...")
+        log(f"Sleeping {CYCLE_INTERVAL_MINUTES} minutes...")
         time.sleep(CYCLE_INTERVAL_MINUTES * 60)
 
 
