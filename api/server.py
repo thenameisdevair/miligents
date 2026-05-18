@@ -100,16 +100,35 @@ from integrations.state_writer import (
 )
 from integrations.wallet import get_eth_balance, get_native_balance
 
+# ─── Direct agent imports — no HTTP needed ────────────────────────────────────
+from agents.originator.main import run as run_originator
+from agents.research_specialist.main import run as run_specialist
+from agents.execution.main import run as run_execution
+from scheduler.main import main as run_scheduler
+
+# ─── App ──────────────────────────────────────────────────────────────────────
+
 app = FastAPI(title="MiliGents API", version="1.0.0")
+
+
+@app.on_event("startup")
+async def start_scheduler_thread():
+    """
+    Launch the agent scheduler as a background daemon thread.
+    Runs alongside FastAPI — no extra Render service needed.
+    Thread is daemon=True so it dies cleanly when the server restarts.
+    """
+    thread = threading.Thread(
+        target=run_scheduler,
+        name="miligents-scheduler",
+        daemon=True,
+    )
+    thread.start()
+
 
 BRIDGE_URL = os.getenv("BRIDGE_URL", "http://localhost:3100")
 KEEPERHUB_MCP_URL = os.getenv("KEEPERHUB_MCP_URL", "http://localhost:3001")
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:8081")
-ORIGINATOR_URL = os.getenv("ORIGINATOR_URL", "http://originator:8001")
-SPECIALIST_URL = os.getenv("SPECIALIST_URL", "http://specialist:8002")
-EXECUTION_URL = os.getenv("EXECUTION_URL", "http://execution:8003")
-AGENT_RUN_TIMEOUT_SECONDS = int(os.getenv("AGENT_RUN_TIMEOUT_SECONDS", "900"))
-AGENT_RUN_POLL_SECONDS = int(os.getenv("AGENT_RUN_POLL_SECONDS", "5"))
 CORS_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
@@ -218,7 +237,6 @@ def _require_session(request: Request) -> dict:
 
 
 def _readable_organism_id(organism_id: str | None, request: Request) -> str | None:
-    """Allow public default reads, but require explicit scope for user data."""
     if not organism_id:
         session = get_session(_session_token_from_request(request))
         if session:
@@ -388,69 +406,56 @@ def organism_resume(organism_id: str, request: Request):
         return {"status": "error", "error": str(e)}
 
 
-def _wait_for_agent(name: str, url: str, cycle_id: str, organism_id: str) -> str:
-    deadline = time.time() + AGENT_RUN_TIMEOUT_SECONDS
-    while time.time() < deadline:
-        try:
-            resp = requests.post(
-                f"{url}/run",
-                json={"organism_id": organism_id, "cycle_id": cycle_id},
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                write_activity("scheduler", "status", f"{name} triggered", cycle_id=cycle_id, organism_id=organism_id)
-                break
-            if resp.status_code == 409:
-                write_activity("scheduler", "status", f"{name} busy; waiting", cycle_id=cycle_id, organism_id=organism_id)
-                time.sleep(AGENT_RUN_POLL_SECONDS)
-                continue
-            write_activity("scheduler", "error", f"{name} run returned {resp.status_code}", cycle_id=cycle_id, organism_id=organism_id)
-            return "error"
-        except Exception as e:
-            write_activity("scheduler", "error", f"{name} run failed: {str(e)[:90]}", cycle_id=cycle_id, organism_id=organism_id)
-            return "error"
-    else:
-        return "timeout"
+# ─── Agent runner — direct function calls, no HTTP ───────────────────────────
 
-    while time.time() < deadline:
-        time.sleep(AGENT_RUN_POLL_SECONDS)
-        try:
-            resp = requests.get(f"{url}/status", timeout=5)
-            data = resp.json()
-            if not data.get("running", True):
-                return "complete"
-        except Exception as e:
-            write_activity("scheduler", "error", f"{name} status failed: {str(e)[:90]}", cycle_id=cycle_id, organism_id=organism_id)
-            return "error"
-    return "timeout"
+def _run_agent_direct(name: str, fn, organism_id: str, cycle_id: str) -> str:
+    """
+    Call an agent's run() function directly in the current thread.
+    Returns 'complete' or 'error'. No HTTP, no separate containers needed.
+    """
+    try:
+        write_activity("scheduler", "task", f"running {name}",
+                       cycle_id=cycle_id, organism_id=organism_id)
+        fn(organism_id=organism_id, cycle_id=cycle_id)
+        write_activity("scheduler", "status", f"{name} → complete",
+                       cycle_id=cycle_id, organism_id=organism_id)
+        return "complete"
+    except Exception as e:
+        write_activity("scheduler", "error", f"{name} failed: {str(e)[:90]}",
+                       cycle_id=cycle_id, organism_id=organism_id)
+        return "error"
 
 
 def _run_hosted_agent_cycle(organism_id: str, cycle_id: str) -> None:
     set_current_organism(organism_id)
     set_current_cycle(cycle_id)
     try:
-        write_activity("scheduler", "task", "triggering originator", cycle_id=cycle_id, organism_id=organism_id)
-        originator_status = _wait_for_agent("originator", ORIGINATOR_URL, cycle_id, organism_id)
-        write_activity("scheduler", "task", "triggering specialist", cycle_id=cycle_id, organism_id=organism_id)
-        specialist_status = _wait_for_agent("specialist", SPECIALIST_URL, cycle_id, organism_id)
-        write_activity("scheduler", "task", "triggering execution", cycle_id=cycle_id, organism_id=organism_id)
-        execution_status = _wait_for_agent("execution", EXECUTION_URL, cycle_id, organism_id)
+        o_status = _run_agent_direct(
+            "originator", run_originator, organism_id, cycle_id)
+        s_status = _run_agent_direct(
+            "specialist", run_specialist, organism_id, cycle_id)
+        e_status = _run_agent_direct(
+            "execution", run_execution, organism_id, cycle_id)
+
         final = "complete" if all(
-            status in {"complete", "timeout"}
-            for status in (originator_status, specialist_status, execution_status)
+            s in {"complete", "timeout"}
+            for s in (o_status, s_status, e_status)
         ) else "error"
+
         write_cycle_complete(
             cycle_id,
             status=final,
-            originator_status=originator_status,
-            specialist_status=specialist_status,
-            execution_status=execution_status,
+            originator_status=o_status,
+            specialist_status=s_status,
+            execution_status=e_status,
             organism_id=organism_id,
         )
-        write_activity("scheduler", "cycle", f"finished {cycle_id} ({final})", cycle_id=cycle_id, organism_id=organism_id)
+        write_activity("scheduler", "cycle", f"finished {cycle_id} ({final})",
+                       cycle_id=cycle_id, organism_id=organism_id)
     except Exception as e:
         write_cycle_complete(cycle_id, status="error", organism_id=organism_id)
-        write_activity("scheduler", "error", f"run-now failed: {str(e)[:100]}", cycle_id=cycle_id, organism_id=organism_id)
+        write_activity("scheduler", "error", f"run-now failed: {str(e)[:100]}",
+                       cycle_id=cycle_id, organism_id=organism_id)
     finally:
         clear_current_cycle()
         clear_current_organism()
@@ -464,11 +469,15 @@ def organism_run_now(organism_id: str, request: Request):
         if organism.get("status") not in {"active", "funded", "sponsored"}:
             return {
                 "status": "error",
-                "error": f"organism must be active, funded, or sponsored before run-now; current status is {organism.get('status')}",
+                "error": (
+                    f"organism must be active, funded, or sponsored before run-now; "
+                    f"current status is {organism.get('status')}"
+                ),
             }
         cycle_id = f"run_now_{organism_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
         write_cycle_start(cycle_id, organism_id=organism_id)
-        write_activity("scheduler", "cycle", f"started {cycle_id}", cycle_id=cycle_id, organism_id=organism_id)
+        write_activity("scheduler", "cycle", f"started {cycle_id}",
+                       cycle_id=cycle_id, organism_id=organism_id)
         thread = threading.Thread(
             target=_run_hosted_agent_cycle,
             args=(organism_id, cycle_id),
@@ -555,8 +564,7 @@ def organism_keeperhub_test_transfer(
         policy = get_effective_execution_policy(organism_id)
         network = (payload.network or "sepolia").lower()
         write_activity(
-            "execution",
-            "tool_call",
+            "execution", "tool_call",
             f"organism keeperhub transfer on {network}",
             {"organism_id": organism_id},
         )
@@ -621,10 +629,9 @@ def organism_keeperhub_test_transfer(
             details={"recipient": recipient, "token": payload.token},
         )
         if tx_hash:
-            write_activity("execution", "tool_result", f"organism transfer tx {tx_hash[:10]}...", {
-                "organism_id": organism_id,
-                "tx_hash": tx_hash,
-            })
+            write_activity("execution", "tool_result",
+                           f"organism transfer tx {tx_hash[:10]}...",
+                           {"organism_id": organism_id, "tx_hash": tx_hash})
 
         return {
             "status": task_status,
@@ -654,9 +661,9 @@ def organism_keeperhub_test_transfer(
             amount_eth=payload.amount,
             details={"error": err},
         )
-        write_activity("execution", "error", f"organism keeperhub transfer failed: {err[:90]}", {
-            "organism_id": organism_id,
-        })
+        write_activity("execution", "error",
+                       f"organism keeperhub transfer failed: {err[:90]}",
+                       {"organism_id": organism_id})
         return {"status": "error", "organism_id": organism_id, "error": err}
 
 
@@ -665,7 +672,8 @@ def organism_keeperhub_test_transfer(
 @app.get("/api/agents")
 def agents(request: Request, organism_id: str = None):
     try:
-        return {"agents": get_all_agents(organism_id=_readable_organism_id(organism_id, request))}
+        return {"agents": get_all_agents(
+            organism_id=_readable_organism_id(organism_id, request))}
     except Exception as e:
         return {"agents": [], "status": "error", "error": str(e)}
 
@@ -687,7 +695,9 @@ def agent(agent_id: str, request: Request, organism_id: str = None):
 @app.get("/api/axl")
 def axl(request: Request, limit: int = 50, organism_id: str = None):
     try:
-        return {"messages": get_axl_messages(limit=limit, organism_id=_readable_organism_id(organism_id, request))}
+        return {"messages": get_axl_messages(
+            limit=limit,
+            organism_id=_readable_organism_id(organism_id, request))}
     except Exception as e:
         return {"messages": [], "status": "error", "error": str(e)}
 
@@ -697,7 +707,9 @@ def axl(request: Request, limit: int = 50, organism_id: str = None):
 @app.get("/api/storage")
 def storage(request: Request, limit: int = 20, organism_id: str = None):
     try:
-        return {"records": get_storage_records(limit=limit, organism_id=_readable_organism_id(organism_id, request))}
+        return {"records": get_storage_records(
+            limit=limit,
+            organism_id=_readable_organism_id(organism_id, request))}
     except Exception as e:
         return {"records": [], "status": "error", "error": str(e)}
 
@@ -707,7 +719,9 @@ def storage(request: Request, limit: int = 20, organism_id: str = None):
 @app.get("/api/tasks")
 def tasks(request: Request, limit: int = 20, organism_id: str = None):
     try:
-        return {"tasks": get_keeperhub_tasks(limit=limit, organism_id=_readable_organism_id(organism_id, request))}
+        return {"tasks": get_keeperhub_tasks(
+            limit=limit,
+            organism_id=_readable_organism_id(organism_id, request))}
     except Exception as e:
         return {"tasks": [], "status": "error", "error": str(e)}
 
@@ -715,7 +729,9 @@ def tasks(request: Request, limit: int = 20, organism_id: str = None):
 @app.get("/api/organism-executions")
 def organism_executions(request: Request, limit: int = 20, organism_id: str = None):
     try:
-        return {"executions": get_organism_executions(limit=limit, organism_id=_readable_organism_id(organism_id, request))}
+        return {"executions": get_organism_executions(
+            limit=limit,
+            organism_id=_readable_organism_id(organism_id, request))}
     except Exception as e:
         return {"executions": [], "status": "error", "error": str(e)}
 
@@ -739,12 +755,6 @@ def execution_policy():
 
 @app.post("/api/keeperhub/test-transfer")
 def keeperhub_test_transfer(network: str = "sepolia", amount: str = None, to: str = None):
-    """
-    Trigger a tiny KeeperHub direct transfer for controlled verification.
-
-    Policy gates still apply. By default this is blocked until
-    KEEPERHUB_LIVE_EXECUTION=true and the selected network is allowed.
-    """
     recipient = to or os.getenv("WALLET_ADDRESS")
     amount = amount or os.getenv("KEEPERHUB_TEST_TRANSFER_ETH", "0.00001")
     if not recipient:
@@ -753,10 +763,7 @@ def keeperhub_test_transfer(network: str = "sepolia", amount: str = None, to: st
     try:
         write_activity("execution", "tool_call", f"keeperhub test transfer on {network}")
         execution_id = execute_transfer(
-            to=recipient,
-            amount=amount,
-            token="ETH",
-            network=network,
+            to=recipient, amount=amount, token="ETH", network=network,
         )
         if not execution_id:
             raise RuntimeError("KeeperHub returned empty execution_id")
@@ -787,9 +794,11 @@ def keeperhub_test_transfer(network: str = "sepolia", amount: str = None, to: st
             tx_hash=tx_hash,
         )
         if tx_hash:
-            write_activity("execution", "tool_result", f"keeperhub transfer tx {tx_hash[:10]}...")
+            write_activity("execution", "tool_result",
+                           f"keeperhub transfer tx {tx_hash[:10]}...")
         else:
-            write_activity("execution", "tool_result", f"keeperhub transfer status {task_status}")
+            write_activity("execution", "tool_result",
+                           f"keeperhub transfer status {task_status}")
 
         return {
             "status": task_status,
@@ -808,7 +817,8 @@ def keeperhub_test_transfer(network: str = "sepolia", amount: str = None, to: st
             task_type=f"direct_transfer_{network}",
             status="blocked" if "KEEPERHUB_" in err or "allowed" in err else "failed",
         )
-        write_activity("execution", "error", f"keeperhub test transfer failed: {err[:100]}")
+        write_activity("execution", "error",
+                       f"keeperhub test transfer failed: {err[:100]}")
         return {
             "status": "error",
             "network": network,
@@ -828,7 +838,7 @@ def infts(request: Request, limit: int = 20, organism_id: str = None):
         return {"infts": [], "total": 0, "status": "error", "error": str(e)}
     return {
         "infts": get_infts(limit=limit, organism_id=organism_id),
-        "total": get_inft_count(organism_id=organism_id)
+        "total": get_inft_count(organism_id=organism_id),
     }
 
 
@@ -836,12 +846,6 @@ def infts(request: Request, limit: int = 20, organism_id: str = None):
 
 @app.get("/api/treasury")
 def treasury(request: Request, organism_id: str = None):
-    """
-    Fetch the organism's treasury wallet balance from the configured
-    EVM RPC, write a snapshot to state.db, and return the latest snapshot.
-
-    On RPC failure, returns the last known snapshot without writing.
-    """
     try:
         organism_id = _readable_organism_id(organism_id, request)
     except Exception as e:
@@ -857,7 +861,8 @@ def treasury(request: Request, organism_id: str = None):
     rpc_error = None
     if address:
         try:
-            balance = get_native_balance(address, network) if organism_id else get_eth_balance(address)
+            balance = (get_native_balance(address, network)
+                       if organism_id else get_eth_balance(address))
             write_treasury_snapshot(eth_balance=balance, organism_id=organism_id)
         except Exception as e:
             rpc_error = str(e)
@@ -873,7 +878,9 @@ def treasury(request: Request, organism_id: str = None):
 @app.get("/api/treasury/history")
 def treasury_history(request: Request, limit: int = 60, organism_id: str = None):
     try:
-        return {"history": get_treasury_history(limit=limit, organism_id=_readable_organism_id(organism_id, request))}
+        return {"history": get_treasury_history(
+            limit=limit,
+            organism_id=_readable_organism_id(organism_id, request))}
     except Exception as e:
         return {"history": [], "status": "error", "error": str(e)}
 
@@ -901,10 +908,6 @@ def stats(request: Request, organism_id: str = None):
 
 @app.get("/api/services")
 def services():
-    """
-    Check health of all dependent services.
-    Used by the frontend deploy pre-flight checks.
-    """
     def check(url: str, path: str = "/health") -> str:
         try:
             r = requests.get(f"{url}{path}", timeout=5)
@@ -915,13 +918,12 @@ def services():
     return {
         "bridge": check(BRIDGE_URL),
         "keeperhub": check(KEEPERHUB_MCP_URL),
-        "api": "online"
+        "api": "online",
     }
 
 
 @app.get("/api/config")
 def frontend_config():
-    """Public frontend config. Never return secrets here."""
     storage_wallet = os.getenv("OG_STORAGE_ADDRESS") or os.getenv("WALLET_ADDRESS", "")
     return {
         "reown_project_id": os.getenv("REOWN_PROJECT_ID", ""),
@@ -941,7 +943,9 @@ def frontend_config():
 @app.get("/api/cycles")
 def cycles(request: Request, limit: int = 20, organism_id: str = None):
     try:
-        return {"cycles": get_cycles(limit=limit, organism_id=_readable_organism_id(organism_id, request))}
+        return {"cycles": get_cycles(
+            limit=limit,
+            organism_id=_readable_organism_id(organism_id, request))}
     except Exception as e:
         return {"cycles": [], "status": "error", "error": str(e)}
 
@@ -949,7 +953,13 @@ def cycles(request: Request, limit: int = 20, organism_id: str = None):
 # ─── Activity ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/activity")
-def activity(request: Request, agent_id: str = None, cycle_id: str = None, organism_id: str = None, limit: int = 30):
+def activity(
+    request: Request,
+    agent_id: str = None,
+    cycle_id: str = None,
+    organism_id: str = None,
+    limit: int = 30,
+):
     try:
         organism_id = _readable_organism_id(organism_id, request)
     except Exception as e:
@@ -965,18 +975,21 @@ def activity(request: Request, agent_id: str = None, cycle_id: str = None, organ
 
 
 @app.get("/api/activity/grouped")
-def activity_grouped(request: Request, limit_per_agent: int = 15, organism_id: str = None):
+def activity_grouped(
+    request: Request,
+    limit_per_agent: int = 15,
+    organism_id: str = None,
+):
     try:
         organism_id = _readable_organism_id(organism_id, request)
     except Exception as e:
         return {"agents": {}, "status": "error", "error": str(e)}
     limit_per_agent = max(1, min(int(limit_per_agent or 15), 50))
-    agents = ["originator", "specialist", "execution", "scheduler"]
+    agent_ids = ["originator", "specialist", "execution", "scheduler"]
     return {
         "agents": {
-            agent_id: get_activity(agent_id=agent_id, limit=limit_per_agent)
-            if not organism_id else get_activity(agent_id=agent_id, organism_id=organism_id, limit=limit_per_agent)
-            for agent_id in agents
+            aid: get_activity(agent_id=aid, organism_id=organism_id, limit=limit_per_agent)
+            for aid in agent_ids
         }
     }
 
@@ -985,29 +998,29 @@ def activity_grouped(request: Request, limit_per_agent: int = 15, organism_id: s
 
 @app.post("/api/demo/run")
 def demo_run(request: Request, payload: ProofRunRequest | None = None):
-    """
-    Run a compact proof cycle for the selected organism.
-
-    This avoids long CrewAI context windows while still using the real bridge:
-    it uploads a strategy proof to 0G Storage, mints an iNFT, stores root/tx
-    state, and emits activity for all dashboard lanes.
-    """
     organism_id = payload.organism_id if payload else None
     try:
         organism_id = _readable_organism_id(organism_id, request)
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
-    cycle_id = f"proof_{organism_id or DEFAULT_ORGANISM_ID}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    cycle_id = (
+        f"proof_{organism_id or DEFAULT_ORGANISM_ID}_"
+        f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    )
     set_current_organism(organism_id or DEFAULT_ORGANISM_ID)
     set_current_cycle(cycle_id)
     write_cycle_start(cycle_id, organism_id=organism_id)
-    write_activity("scheduler", "cycle", f"started {cycle_id}", cycle_id=cycle_id, organism_id=organism_id)
+    write_activity("scheduler", "cycle", f"started {cycle_id}",
+                   cycle_id=cycle_id, organism_id=organism_id)
 
     try:
         now = datetime.now(timezone.utc).isoformat()
-        write_agent_status("originator", "running", current_task="Preparing proof strategy", organism_id=organism_id)
-        write_activity("originator", "task", "selected compact proof strategy", cycle_id=cycle_id, organism_id=organism_id)
+        write_agent_status("originator", "running",
+                           current_task="Preparing proof strategy",
+                           organism_id=organism_id)
+        write_activity("originator", "task", "selected compact proof strategy",
+                       cycle_id=cycle_id, organism_id=organism_id)
 
         strategy = {
             "name": "Organism Proof Strategy",
@@ -1021,8 +1034,11 @@ def demo_run(request: Request, payload: ProofRunRequest | None = None):
         }
         filename = f"organism_proof_strategy_{cycle_id}.json"
 
-        write_agent_status("specialist", "running", current_task="Writing compact strategy report", organism_id=organism_id)
-        write_activity("specialist", "task", "prepared storage proof payload", cycle_id=cycle_id, organism_id=organism_id)
+        write_agent_status("specialist", "running",
+                           current_task="Writing compact strategy report",
+                           organism_id=organism_id)
+        write_activity("specialist", "task", "prepared storage proof payload",
+                       cycle_id=cycle_id, organism_id=organism_id)
         root_hash = upload_data(json.dumps(strategy, indent=2), filename)
         write_storage_record("specialist", filename, root_hash, organism_id=organism_id)
 
@@ -1033,8 +1049,11 @@ def demo_run(request: Request, payload: ProofRunRequest | None = None):
             "cycle_id": cycle_id,
         }, organism_id=organism_id)
 
-        write_agent_status("execution", "running", current_task="Minting iNFT proof", organism_id=organism_id)
-        write_activity("execution", "task", "minting proof iNFT", cycle_id=cycle_id, organism_id=organism_id)
+        write_agent_status("execution", "running",
+                           current_task="Minting iNFT proof",
+                           organism_id=organism_id)
+        write_activity("execution", "task", "minting proof iNFT",
+                       cycle_id=cycle_id, organism_id=organism_id)
         minted = mint_inft(root_hash, {
             "agent": "execution",
             "version": 1,
@@ -1062,10 +1081,15 @@ def demo_run(request: Request, payload: ProofRunRequest | None = None):
             "cycle_id": cycle_id,
         }, organism_id=organism_id)
 
-        write_agent_status("originator", "complete", current_task="Proof complete", organism_id=organism_id)
-        write_agent_status("specialist", "complete", current_task="Proof report stored", organism_id=organism_id)
-        write_agent_status("execution", "complete", current_task=f"Minted iNFT token {token_id}", organism_id=organism_id)
-        write_activity("scheduler", "cycle", f"finished {cycle_id} (complete)", cycle_id=cycle_id, organism_id=organism_id)
+        write_agent_status("originator", "complete",
+                           current_task="Proof complete", organism_id=organism_id)
+        write_agent_status("specialist", "complete",
+                           current_task="Proof report stored", organism_id=organism_id)
+        write_agent_status("execution", "complete",
+                           current_task=f"Minted iNFT token {token_id}",
+                           organism_id=organism_id)
+        write_activity("scheduler", "cycle", f"finished {cycle_id} (complete)",
+                       cycle_id=cycle_id, organism_id=organism_id)
         write_cycle_complete(
             cycle_id,
             status="complete",
@@ -1085,10 +1109,12 @@ def demo_run(request: Request, payload: ProofRunRequest | None = None):
         }
     except Exception as e:
         err = str(e)
-        write_activity("scheduler", "error", f"proof failed: {err[:100]}", cycle_id=cycle_id, organism_id=organism_id)
+        write_activity("scheduler", "error", f"proof failed: {err[:100]}",
+                       cycle_id=cycle_id, organism_id=organism_id)
         write_cycle_complete(cycle_id, status="error", organism_id=organism_id)
         write_agent_status("execution", "error", result=err, organism_id=organism_id)
-        return {"status": "error", "organism_id": organism_id, "cycle_id": cycle_id, "error": err}
+        return {"status": "error", "organism_id": organism_id,
+                "cycle_id": cycle_id, "error": err}
     finally:
         clear_current_cycle()
         clear_current_organism()
@@ -1098,10 +1124,6 @@ def demo_run(request: Request, payload: ProofRunRequest | None = None):
 
 @app.post("/api/scheduler/pause")
 def scheduler_pause():
-    """
-    Pause the scheduler by writing the pause flag file.
-    The scheduler checks this file before each cycle.
-    """
     try:
         state_dir = os.getenv("STATE_DIR", "./state")
         os.makedirs(state_dir, exist_ok=True)
@@ -1114,9 +1136,6 @@ def scheduler_pause():
 
 @app.post("/api/scheduler/resume")
 def scheduler_resume():
-    """
-    Resume the scheduler by deleting the pause flag file.
-    """
     try:
         flag = os.path.join(os.getenv("STATE_DIR", "./state"), "scheduler.paused")
         if os.path.exists(flag):
@@ -1128,9 +1147,6 @@ def scheduler_resume():
 
 @app.get("/api/scheduler/status")
 def scheduler_status():
-    """
-    Return whether the scheduler is currently paused.
-    """
     flag = os.path.join(os.getenv("STATE_DIR", "./state"), "scheduler.paused")
     return {"paused": os.path.exists(flag)}
 
@@ -1162,10 +1178,6 @@ manager = ConnectionManager()
 
 @app.websocket("/api/feed/live")
 async def feed(websocket: WebSocket):
-    """
-    WebSocket endpoint — pushes live state updates every 3 seconds.
-    Frontend connects here for real-time dashboard updates.
-    """
     await manager.connect(websocket)
     try:
         while True:
