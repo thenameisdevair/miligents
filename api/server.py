@@ -909,11 +909,11 @@ def stats(request: Request, organism_id: str = None):
 @app.get("/api/services")
 def services():
     def check(url: str, path: str = "/health") -> str:
-    try:
-        requests.get(f"{url}{path}", timeout=5)
-        return "online"
-    except Exception:
-        return "offline"
+        try:
+            requests.get(f"{url}{path}", timeout=5)
+            return "online"
+        except Exception:
+            return "offline"
 
     return {
         "bridge": check(BRIDGE_URL),
